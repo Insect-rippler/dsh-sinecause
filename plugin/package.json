@@ -1,7 +1,6 @@
 {
   "name": "dsh-sinecause",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "description": "给 DSH 上的一个会话装上自己的目标、记忆和作息：goal / memory / clock 三个插件",
   "license": "MIT",
@@ -13,6 +12,15 @@
     "memory",
     "goal"
   ],
+  "homepage": "https://github.com/Insect-rippler/dsh-sinecause#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Insect-rippler/dsh-sinecause.git",
+    "directory": "plugin"
+  },
+  "bugs": {
+    "url": "https://github.com/Insect-rippler/dsh-sinecause/issues"
+  },
   "main": "src/index.js",
   "exports": {
     ".": "./src/index.js",
@@ -38,5 +46,8 @@
   },
   "dependencies": {
     "@huggingface/transformers": "^4.3.1"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

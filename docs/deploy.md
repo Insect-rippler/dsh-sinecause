@@ -139,7 +139,17 @@ git init
 
 ### 5.2 装包
 
-推荐 `link:`：零配置、改源码后重启即生效。
+**从 npm 装**（推荐）：
+
+```powershell
+dsh plugin --profile web add dsh-sinecause --allow-build=onnxruntime-node --allow-build=protobufjs
+```
+
+**装完必须配 `workspaceRoot`**——从 npm 装的包在 `node_modules` 里，
+"包的上一级目录"指不到工作区。按第 4 节写 profile 的 `cordis.patch.yml`，或设
+`SINECAUSE_WORKSPACE`。不配的话插件会在加载时直接报错。
+
+**从 git 检出装**（零配置，适合改源码）：
 
 ```powershell
 # 先给插件目录自己装依赖——link: 不会替它装
@@ -150,15 +160,10 @@ pnpm install --registry https://registry.npmmirror.com/
 dsh plugin --profile web add link:<PLUGIN> --allow-build=onnxruntime-node --allow-build=protobufjs
 ```
 
-如果 DSH 是**源码检出**、`dsh` 不在 PATH 上，就用检出里的脚本：
+`link:` 时包就在 `<WORKSPACE>/plugin`，默认解析正好指向工作区，**不用配任何路径**。
 
-```powershell
-cd <CHECKOUT>
-pnpm dsh plugin --profile web add link:<PLUGIN> --allow-build=onnxruntime-node --allow-build=protobufjs
-```
-
-想装成冻结副本就把 `link:` 换成 `file:`——但那样必须按第 4 节显式配置
-`workspaceRoot`，因为包会被复制进 `node_modules`。
+如果 DSH 是**源码检出**、`dsh` 不在 PATH 上，两种装法都把 `dsh plugin` 换成
+`pnpm dsh plugin`（在检出目录里执行）。
 
 **那两个 `--allow-build` 不能省。** 插件依赖 `@huggingface/transformers`，它以
 `onnxruntime-node` 和 `protobufjs` 作为后端，pnpm 11 默认不跑这两个包的安装脚本；
@@ -167,22 +172,27 @@ pnpm dsh plugin --profile web add link:<PLUGIN> --allow-build=onnxruntime-node -
 （Windows x64 上 onnxruntime 的 CPU 二进制本来就随包附带、不需要下载——但 pnpm
 仍然要求显式放行才肯继续。这一点和"要不要下载"是两件事。）
 
-### 5.3 `file:` 还是 `link:`
+### 5.3 三种装法的差别
 
-**部署用 `file:`**：pnpm 会把插件目录打包复制进 profile，并把它的依赖（transformers 等）
-一并装进 profile 的 `node_modules`。一条命令装完，不需要再进插件目录做任何事。
+| 装法 | 依赖 | 工作区解析 | 适用 |
+|---|---|---|---|
+| npm（`dsh-sinecause`） | 自动装进 profile | **要配 `workspaceRoot`** | 部署、跟进版本 |
+| `link:<PLUGIN>` | 要自己 `pnpm install` | 零配置 | 改源码、调试 |
+| `file:<PLUGIN>` | 自动装进 profile | **要配 `workspaceRoot`** | 冻结副本 |
 
-**开发用 `link:`**：建 junction，改源码后重启即生效。但它有两个前提：
+### 5.3.1 `link:` 的额外准备
 
-1. 链接依赖**不会**替插件安装它自己的依赖，所以必须先手动准备：
-   ```powershell
-   cd <PLUGIN>
-   pnpm install --registry https://registry.npmmirror.com/
-   ```
-   （`<PLUGIN>/pnpm-workspace.yaml` 里的 `onlyBuiltDependencies` 就是给这一步用的。）
-2. `link:` 装完后，`node_modules/dsh-sinecause` 会指向插件目录，改完重启即可。
+链接依赖**不会**替插件安装它自己的依赖，所以先手动装一次：
 
-两种方式都要求包在 `package.json` 里声明了 `dsh.bundle`——本包已经声明：
+```powershell
+cd <PLUGIN>
+pnpm install --registry https://registry.npmmirror.com/
+```
+
+（`<PLUGIN>/pnpm-workspace.yaml` 里的 `onlyBuiltDependencies` 就是给这一步用的。）
+之后 `node_modules/dsh-sinecause` 会指向插件目录，改完重启即可。
+
+所有装法都要求包在 `package.json` 里声明了 `dsh.bundle`——本包已经声明：
 
 ```json
 "dsh": { "bundle": { "patch": ["./cordis.patch.yml"] } }
@@ -309,29 +319,39 @@ Get-NetTCPConnection -LocalPort 3080 -State Listen
 
 ## 11. 从零到跑通：完整命令
 
+**npm 装法**（部署推荐）：
+
 ```powershell
-# 1. 工作区（插件包放在 <WORKSPACE>\plugin）
+# 1. 工作区
 cd <WORKSPACE>
 git init
 
-# 2. 模型
-cd <PLUGIN>
-pwsh -File scripts/download-model.ps1
-
-# 3. 插件自己的依赖（link: 不会替你装）
-pnpm install --registry https://registry.npmmirror.com/
-
-# 4. 退出 DSH 后安装（dsh 不在 PATH 上就用 pnpm dsh）
+# 2. 退出 DSH 后安装（dsh 不在 PATH 上就用 pnpm dsh）
 #    两个 --allow-build 不能省，否则 pnpm 以 ERR_PNPM_IGNORED_BUILDS 退出 1
-dsh plugin --profile web add link:<PLUGIN> --allow-build=onnxruntime-node --allow-build=protobufjs
+dsh plugin --profile web add dsh-sinecause --allow-build=onnxruntime-node --allow-build=protobufjs
 
-# 5. 启动
+# 3. 配工作区（必须！包在 node_modules 里，默认解析指不到）
+#    按第 4 节写 <DSH_HOME>/profiles/web/cordis.patch.yml 的三行 workspaceRoot
+
+# 4. 启动
 dsh web                                  # 或 pnpm dsh web
 
-# 6. 验证
+# 5. 验证
 dsh --profile web --dump-config | Select-String 'sinecause'
 ```
 
-用 `file:` 装法的话，第 1 步之后还要按第 4 节配置 `workspaceRoot`。
+**源码装法**（零配置，改代码用）：
+
+```powershell
+cd <WORKSPACE>; git init
+cd <PLUGIN>
+pwsh -File scripts/download-model.ps1          # 可选：本地模型副本
+pnpm install --registry https://registry.npmmirror.com/
+cd <WORKSPACE>
+dsh plugin --profile web add link:<PLUGIN> --allow-build=onnxruntime-node --allow-build=protobufjs
+dsh web
+```
+
+装好之后第一次用向量会加载模型，约 600ms；之后常驻。
 
 装好之后第一次写记忆会加载模型，约 600ms；之后常驻。

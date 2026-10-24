@@ -256,15 +256,42 @@ cd plugin && node --test
 
 本包同时是一个 **bundle**：自己带 `cordis.patch.yml` 声明挂载哪些行。
 profile 只要在 `dsh.profile.bundles` 里列出包名就生效——
-**不要**往 profile 自己的 `cordis.patch.yml` 里写行，那个文件会被插件安装重写，
-写进去的行会丢。
+**不要**往 profile 自己的 `cordis.patch.yml` 里写插入行，那个文件会被插件安装重写，
+写进去的行会丢（**按 id 覆盖已有行的 config 是安全的**，见下）。
 
-依赖用 `link:` 而不是 `file:`：`file:` 是按锁定内容复制的，改完源码不重装不生效；
-`link:` 是 junction，改完重启 `dsh web` 即可，不用重装。
+### 从 npm 装
 
 ```sh
-cd ~/.dsh/profiles/web
-pnpm install
+dsh plugin --profile web add dsh-sinecause --allow-build=onnxruntime-node --allow-build=protobufjs
 ```
 
-bundle 层在启动时组装，所以改源码后需要重启 `dsh web`。
+**装完必须配 `workspaceRoot`**：包在 `node_modules` 里，"包的上一级目录"指不到工作区，
+插件会在加载时直接报错（故意如此，免得把状态文件写进依赖目录）。
+
+```yaml
+# <DSH_HOME>/profiles/web/cordis.patch.yml —— 按 id 覆盖，不是插入
+- id: sinecause-goal
+  config:
+    workspaceRoot: <WORKSPACE>
+- id: sinecause-memory
+  config:
+    workspaceRoot: <WORKSPACE>
+- id: sinecause-clock
+  config:
+    workspaceRoot: <WORKSPACE>
+```
+
+或者启动前设 `SINECAUSE_WORKSPACE=<WORKSPACE>`。
+
+### 从源码装（开发用，零配置）
+
+```sh
+cd <PLUGIN>
+pnpm install --registry https://registry.npmmirror.com/   # link: 不会替你装依赖
+dsh plugin --profile web add link:<PLUGIN> --allow-build=onnxruntime-node --allow-build=protobufjs
+```
+
+`link:` 建 junction，包就在 `<WORKSPACE>/plugin`，默认解析正好指向工作区，不用配任何路径；
+改完源码重启 `dsh web` 即生效，不用重装。
+
+bundle 层在启动时组装，所以任何改动都要重启才生效。

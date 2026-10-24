@@ -35,27 +35,39 @@
 完整步骤见 **[docs/deploy.md](docs/deploy.md)**：前置条件、安装、模型准备、
 验收清单和十条踩过的坑。
 
-最短路径（`link:` 装法，零配置）：
+最短路径（npm 安装）：
 
 ```powershell
-# 1. 工作区自成一个项目根，插件包放在 <WORKSPACE>/plugin
+# 1. 工作区自成一个项目根
 cd <WORKSPACE>; git init
 
-# 2. 下载向量模型（约 98MB，走 hf-mirror）
-cd plugin; pwsh -File scripts/download-model.ps1
+# 2. 完全退出 DSH 后装插件
+dsh plugin --profile web add dsh-sinecause --allow-build=onnxruntime-node --allow-build=protobufjs
 
-# 3. 装进插件目录自己的 node_modules（link: 不会替你装依赖）
-pnpm install --registry https://registry.npmmirror.com
-
-# 4. 完全退出 DSH 后安装
-cd <WORKSPACE>
-dsh plugin --profile web add link:<WORKSPACE>/plugin --allow-build=onnxruntime-node --allow-build=protobufjs
+# 3. 告诉它工作区在哪（npm 安装必须做，见下）
+#    编辑 <DSH_HOME>/profiles/web/cordis.patch.yml
 ```
 
-**用 `file:` 装法的话要多做一步**：包会被复制进 profile 的 `node_modules`，
-"默认取包的上一级目录"就指错了，必须在 `plugin/cordis.patch.yml` 里显式写
-`workspaceRoot`，或者设环境变量 `SINECAUSE_WORKSPACE`。
-不写的话插件会在加载时直接报错，而不是把状态文件写进依赖目录。
+```yaml
+- id: sinecause-goal
+  config:
+    workspaceRoot: <WORKSPACE>
+- id: sinecause-memory
+  config:
+    workspaceRoot: <WORKSPACE>
+- id: sinecause-clock
+  config:
+    workspaceRoot: <WORKSPACE>
+```
+
+**为什么第 3 步不能省：** 工作区默认取"包的上一级目录"——从 npm 装时那是
+`node_modules`，插件会在加载时直接报错，而不是把状态文件写进依赖目录。
+也可以不改文件，改成启动前设 `SINECAUSE_WORKSPACE=<WORKSPACE>`。
+
+**想零配置**就用 git 检出 + `link:` 安装：包就在 `<WORKSPACE>/plugin`，"上一级目录"正好是工作区。
+
+**向量模型**首次使用会自动从 `hf-mirror.com` 下载（约 98MB，慢）。想用现成的本地副本，
+配 `embedding.modelPath` 指到模型目录即可。
 
 ## 目录
 
