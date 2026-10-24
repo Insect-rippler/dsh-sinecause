@@ -17,7 +17,7 @@
 | **插件包** `dsh-sinecause` | 三个 Cordis 插件入口：`/`（goal）、`/memory`、`/clock` | DSH profile 的依赖 |
 | **工作区隔离** | 一个 `.git` 目录，让这个工作区成为独立的项目根 | 你的工作区 |
 | **状态文件** | `agenda.json`（目标）、`memory.json`（记忆） | 你的工作区 `state/` |
-| **向量模型** | 768 维 bge-base-zh，判断"同一件事又有了新情况" | 插件包内 `models/` |
+| **向量模型** | 768 维 bge-base-zh，判断"同一件事又有了新情况" | 插件包的 `models/`，或 HF 缓存（见第 6 节） |
 
 工作区隔离这一步容易被忽略，但它是"她只活在这个工作区"的前提：
 DSH 用"从 cwd 向上第一个含 `.git` 的目录"判定项目根，
@@ -41,16 +41,23 @@ DSH 用"从 cwd 向上第一个含 `.git` 的目录"判定项目根，
 
 ## 2. 放置文件
 
-把整个 `plugin/` 目录拷到目标机器的任意位置，**不要**放进 DSH 检出目录里。
-本教程用占位符：
+**从 npm 装**时没有这一步——包会进 `<DSH_HOME>\profiles\web\node_modules\`，
+直接跳到第 3 步。只有想改源码（`link:` / `file:` 装法）才需要把 `plugin/` 拷过来：
+
+```powershell
+git clone https://github.com/Insect-rippler/dsh-sinecause
+# 或直接把 plugin/ 整个拷到目标位置
+```
+
+两种装法都用这套占位符：
 
 ```
 <WORKSPACE>   你的工作区，例如 D:\agents\sinecause
-<PLUGIN>      插件包位置，例如 <WORKSPACE>\plugin
+<PLUGIN>      插件包位置，例如 <WORKSPACE>\plugin（仅源码装法需要）
 <DSH_HOME>    默认 ~/.dsh
 ```
 
-建议的结构：
+建议的结构（源码装法）：
 
 ```
 <WORKSPACE>/
@@ -59,8 +66,14 @@ DSH 用"从 cwd 向上第一个含 `.git` 的目录"判定项目根，
   state/
     agenda.json            第一次写入时自动创建
     memory.json            第一次写入时自动创建
-  plugin/                  插件包本体
-    src/goal, src/memory, src/clock, src/workspace-gate.js
+  plugin/                  插件包本体（npm 装法没有这一层）
+    src/index.js           目标：尾部注入 + plan 工具
+    src/agenda.js          目标状态机
+    src/render.js          尾部渲染
+    src/memory/            记忆：常驻档案、召回、向量、整理
+    src/clock/             心跳
+    src/paths.js           工作区与状态文件的默认解析
+    src/workspace-gate.js  工作区判定
     cordis.patch.yml       ← 挂载声明（多数情况不用改）
     scripts/download-model.ps1
 ```
@@ -95,36 +108,40 @@ git init
 
 所以：
 
-| 安装方式 | 要不要配 |
-|---|---|
-| `link:`，包在 `<WORKSPACE>/plugin` | **不用**，第 3 条正好指向工作区 |
-| `file:`，包被复制进 profile 的 `node_modules` | **必须配**——第 3 条会指到依赖目录 |
+| 安装方式 | 包实际在哪 | 要不要配 |
+|---|---|---|
+| npm（`dsh-sinecause`） | profile 的 `node_modules` | **必须配**——默认解析会落进依赖目录 |
+| `file:<PLUGIN>` | profile 的 `node_modules` | **必须配** |
+| `link:<PLUGIN>`，包在 `<WORKSPACE>/plugin` | 就是工作区里那份 | **不用**，第 3 条正好指向工作区 |
 
-`file:` 装法下，编辑 `<PLUGIN>/cordis.patch.yml` 补上：
+**要配的时候，改 profile 的文件，不要改包里的。** 写这个文件
+（`<DSH_HOME>\profiles\web\cordis.patch.yml`）——它是**按行 id 覆盖配置**，
+不是插入新行，所以不会被插件安装冲掉：
 
 ```yaml
-- insert:
-    - id: sinecause-goal
-      name: 'dsh-sinecause'
-      config:
-        workspaceRoot: <WORKSPACE>
+- id: sinecause-goal
+  config:
+    workspaceRoot: <WORKSPACE>
 
-    - id: sinecause-memory
-      name: 'dsh-sinecause/memory'
-      config:
-        workspaceRoot: <WORKSPACE>
+- id: sinecause-memory
+  config:
+    workspaceRoot: <WORKSPACE>
 
-    - id: sinecause-clock
-      name: 'dsh-sinecause/clock'
-      config:
-        intervalMinutes: 10          # 快速迭代期用 10，稳定后改 30 或更大
-        workspaceRoot: <WORKSPACE>
+- id: sinecause-clock
+  config:
+    intervalMinutes: 10          # 快速迭代期用 10，稳定后改 30 或更大
+    workspaceRoot: <WORKSPACE>
 ```
 
 也可以不改文件，改成启动前设 `SINECAUSE_WORKSPACE=<WORKSPACE>`。
 
-**忘了配会怎样：** 插件不会把状态文件写进 `node_modules`，而是在加载时直接报错
-`工作区解析到了依赖目录`。这是故意的——静默写错地方比启动失败更难查。
+如果是**源码装法**、又想把这套配置固化进仓库，就改 `<PLUGIN>/cordis.patch.yml`
+（bundle 自带的挂载声明），格式是 `- insert:` 加三行完整声明——源码里那份现在是
+零路径的，照着加 `config.workspaceRoot` 即可。
+
+**忘了配会怎样：** 三个插件全部加载失败，启动**不会**因此中止，只在末尾 warn
+一句 `3 entries did not activate`——表现为"工具消失了"。原因写在报错里：
+`工作区解析到了依赖目录`。这是故意的：静默把状态文件写进 `node_modules` 更难查。
 
 **正斜杠反斜杠都行**，但 `workspaceRoot` 必须在规范化后与会话 cwd 相等
 （插件会 normalize 并忽略大小写；早期版本这里有个致命 bug，见第 8 节）。
@@ -229,13 +246,22 @@ registry=https://registry.npmmirror.com/
 
 插件需要 `Xenova/bge-base-zh-v1.5` 的 ONNX 副本（int8 约 98MB）。
 
+**源码装法：**
+
 ```powershell
 cd <PLUGIN>
 pwsh -File scripts/download-model.ps1
 ```
 
 它会从 `hf-mirror.com` 下载四个文件到 `models/bge-base-zh-v1.5/`。
-插件启动时会**优先用这个本地目录**；没有才回落到 HF Hub（并把端点指向镜像）。
+
+**npm 装法：** 脚本在包内，路径是
+`<DSH_HOME>\profiles\web\node_modules\dsh-sinecause\scripts\download-model.ps1`（0.1.1 起才随包发布）。
+但写进 `node_modules` 的模型可能被下一次安装清掉——更稳的是下载到别处，
+再配 `config.embedding.modelPath` 指过去。
+
+**不装也行：** 插件启动时优先用本地 `models/` 目录，没有就回落到 HF Hub（端点指向镜像），
+第一次用向量时现下。慢，但能跑。
 
 想跳过向量（只跑 goal + clock），把那两行的 `config.embedding` 设为 `{ enabled: false }`。
 功能仍在，只是新旧判断退回词法，认不出"同一个能力换了说法"。
@@ -248,7 +274,7 @@ pwsh -File scripts/download-model.ps1
 
 ```powershell
 # 1. 三个插件行都在组合后的配置里
-dsh --profile web --dump-config | Select-String 'goal-agenda|sinecause-memory|sinecause-clock'
+dsh --profile web --dump-config | Select-String 'sinecause-goal|sinecause-memory|sinecause-clock'
 
 # 2. 端口没被旧实例占着（重启前检查）
 Get-NetTCPConnection -LocalPort 3080 -State Listen
@@ -279,7 +305,9 @@ Get-NetTCPConnection -LocalPort 3080 -State Listen
 | `dsh plugin add` 报 `ERR_PNPM_IGNORED_BUILDS` 退出 1 | pnpm 默认不跑 onnxruntime/protobufjs 的安装脚本 | 命令加 `--allow-build=onnxruntime-node --allow-build=protobufjs` |
 | 装完之后 `--dump-config` 里没有这三行 | 上一次失败的安装把依赖留在了 manifest，重跑时被当成"不是新装的"，跳过 bundle 登记 | 删掉 `dependencies` 里那条再重装，或手工补进 `dsh.profile.bundles` |
 | 装了插件后应用起不来，日志 `EADDRINUSE` | 旧实例没退干净，端口被占 | 启动前确认 `Get-NetTCPConnection -LocalPort 3080` 无输出 |
-| 重启后插件又没了 | 把插入行写进了 profile 自己的 `cordis.patch.yml`，该文件会被插件安装重写 | 用 bundle 自带 patch（本包的 `cordis.patch.yml`），不要手改 profile 的 |
+| 装完 `plan`/`memory` 都不见了，启动只多一句 `3 entries did not activate` | 从 npm 装的包在 `node_modules` 里，没配 `workspaceRoot` | 按第 4 节在 profile 的 `cordis.patch.yml` 里按 id 覆盖，或设 `SINECAUSE_WORKSPACE` |
+| 首次启动等了几分钟没有任何输出，像是卡死 | 启动期间不打印进度，URL 在最后一行才出 | 等；判断"卡住"之前先确认自己真的在等（`job_output` 不带 `wait` 会立刻返回） |
+| 重启后插件又没了 | 把**插入行**写进了 profile 自己的 `cordis.patch.yml`，该文件会被插件安装重写 | 按 id **覆盖** config 是安全的；要新增行就用 bundle 自带的 patch |
 | 心跳不触发 | 用了 `agent.inbox.append()` | 必须用 `agent.followup()`：前者只入队，不触发 `wakeDriver()` |
 | 每次写记忆都报三条"相近" | 库里的条目全长在同一语境，同领域不同事余弦就有 0.82–0.89 | 本版用三条判据（同类 + 共用关键词 + 分数过线）；阈值按尺度分开 |
 | `npm install` 报 500 | `registry.npmjs.org` 不可用 | profile 的 `.npmrc` 加镜像 |
