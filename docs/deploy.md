@@ -1,0 +1,309 @@
+# 部署教程：在 DSH 上跑起「目标 / 记忆 / 时钟」
+
+这份文档写给**另一台机器**上的部署者：把三个插件（goal、memory、clock）装进一份 DSH，
+让一个工作区里的会话拥有自己的目标、记忆和作息。
+
+它不做的事情：不介绍这套东西为什么这么设计（那是各入口的 README 的事），
+也不假装它已经完成——最后一节列了还没做的部分。
+
+---
+
+## 0. 它是什么
+
+四个部件，缺一不可：
+
+| 部件 | 作用 | 装在哪 |
+|---|---|---|
+| **插件包** `dsh-goal-agenda` | 三个 Cordis 插件入口：`/`（goal）、`/memory`、`/clock` | DSH profile 的依赖 |
+| **工作区隔离** | 一个 `.git` 目录，让这个工作区成为独立的项目根 | 你的工作区 |
+| **状态文件** | `agenda.json`（目标）、`memory.json`（记忆） | 你的工作区 `state/` |
+| **向量模型** | 768 维 bge-base-zh，判断"同一件事又有了新情况" | 插件包内 `models/` |
+
+工作区隔离这一步容易被忽略，但它是"她只活在这个工作区"的前提：
+DSH 用"从 cwd 向上第一个含 `.git` 的目录"判定项目根，
+没有它，工作区会并进上层仓库的指令链。
+
+---
+
+## 1. 前置条件
+
+| 项 | 要求 | 检查 |
+|---|---|---|
+| Node | `^22.19.0 \|\| >=24.0.0` | `node -v` |
+| DSH | 能跑 `dsh web`（本教程在 `0.2.1-rc.2` 上验证） | `dsh --version` |
+| pnpm | 11.x | `pnpm -v` |
+| 磁盘 | 约 250MB（模型 98MB + onnxruntime） | — |
+
+网络上有两个坑，先确认再装（见第 8 节）：`registry.npmjs.org` 在部分网络不可用；
+`huggingface.co` 可能被 DNS 污染。
+
+---
+
+## 2. 放置文件
+
+把整个 `plugin/` 目录拷到目标机器的任意位置，**不要**放进 DSH 检出目录里。
+本教程用占位符：
+
+```
+<WORKSPACE>   你的工作区，例如 D:\agents\sinecause
+<PLUGIN>      插件包位置，例如 <WORKSPACE>\plugin
+<DSH_HOME>    默认 ~/.dsh
+```
+
+建议的结构：
+
+```
+<WORKSPACE>/
+  .git/                    ← 必须有，见第 3 步
+  AGENTS.md                ← 这个工作区的规矩（可选但建议）
+  state/
+    agenda.json            第一次写入时自动创建
+    memory.json            第一次写入时自动创建
+  plugin/                  插件包本体
+    src/goal, src/memory, src/clock, src/workspace-gate.js
+    cordis.patch.yml       ← 要改路径的那份
+    scripts/download-model.ps1
+```
+
+---
+
+## 3. 建立工作区隔离
+
+```powershell
+cd <WORKSPACE>
+git init
+```
+
+**不要删除这个 `.git`。** 删掉意味着这个工作区重新并进上层的指令链和技能链。
+
+（如果你不想引入 git 仓库，也可以只建一个空目录名为 `.git`——判定只看它是否存在。）
+
+然后写一份 `AGENTS.md`，至少写清楚：这是独立工作区、不继承上层规则、
+以及状态文件放在哪。
+
+---
+
+## 4. 改路径
+
+编辑 `<PLUGIN>/cordis.patch.yml`，把三处绝对路径换成你自己的：
+
+```yaml
+- insert:
+    - id: goal-agenda
+      name: 'dsh-goal-agenda'
+      config:
+        statePath: <WORKSPACE>/state/agenda.json
+        workspaceRoot: <WORKSPACE>
+
+    - id: sinecause-memory
+      name: 'dsh-goal-agenda/memory'
+      config:
+        statePath: <WORKSPACE>/state/memory.json
+        workspaceRoot: <WORKSPACE>
+
+    - id: sinecause-clock
+      name: 'dsh-goal-agenda/clock'
+      config:
+        intervalMinutes: 10          # 快速迭代期用 10，稳定后改 30 或更大
+        workspaceRoot: <WORKSPACE>
+```
+
+**正斜杠反斜杠都行**，但 `workspaceRoot` 必须在规范化后与会话 cwd 相等
+（本版插件会 normalize 并忽略大小写；早期版本这里有个致命 bug，见第 8 节）。
+
+---
+
+## 5. 安装进 profile
+
+### 5.1 先完全退出 DSH
+
+安装会改 profile 的 `package.json` 并重装依赖。**应用开着的时候不要装**，装完再启动。
+
+### 5.2 装包
+
+先用 `dsh` 命令（已安装 CLI 的机器）：
+
+```powershell
+dsh plugin --profile web add file:<PLUGIN> --allow-build=onnxruntime-node --allow-build=protobufjs
+```
+
+如果 DSH 是**源码检出**、`dsh` 不在 PATH 上，就用检出里的脚本：
+
+```powershell
+cd <CHECKOUT>
+pnpm dsh plugin --profile web add file:<PLUGIN> --allow-build=onnxruntime-node --allow-build=protobufjs
+```
+
+**那两个 `--allow-build` 不能省。** 插件依赖 `@huggingface/transformers`，它以
+`onnxruntime-node` 和 `protobufjs` 作为后端，pnpm 11 默认不跑这两个包的安装脚本；
+一旦拒绝，pnpm 直接以 `ERR_PNPM_IGNORED_BUILDS` 退出 1，整个安装失败。
+
+（Windows x64 上 onnxruntime 的 CPU 二进制本来就随包附带、不需要下载——但 pnpm
+仍然要求显式放行才肯继续。这一点和"要不要下载"是两件事。）
+
+### 5.3 `file:` 还是 `link:`
+
+**部署用 `file:`**：pnpm 会把插件目录打包复制进 profile，并把它的依赖（transformers 等）
+一并装进 profile 的 `node_modules`。一条命令装完，不需要再进插件目录做任何事。
+
+**开发用 `link:`**：建 junction，改源码后重启即生效。但它有两个前提：
+
+1. 链接依赖**不会**替插件安装它自己的依赖，所以必须先手动准备：
+   ```powershell
+   cd <PLUGIN>
+   pnpm install --registry https://registry.npmmirror.com/
+   ```
+   （`<PLUGIN>/pnpm-workspace.yaml` 里的 `onlyBuiltDependencies` 就是给这一步用的。）
+2. `link:` 装完后，`node_modules/dsh-goal-agenda` 会指向插件目录，改完重启即可。
+
+两种方式都要求包在 `package.json` 里声明了 `dsh.bundle`——本包已经声明：
+
+```json
+"dsh": { "bundle": { "patch": ["./cordis.patch.yml"] } }
+```
+
+装完确认：
+
+```powershell
+Get-Content <DSH_HOME>\profiles\web\package.json
+# dependencies 里有 dsh-goal-agenda
+# dsh.profile.bundles 里也有 dsh-goal-agenda
+```
+
+`dsh plugin add` 会在安装成功后把包名**追加到 `dsh.profile.bundles`**。
+
+> **例外，踩过一次：** 如果上一次安装失败但 `package.json` 里已经留下了这条依赖，
+> 重跑 `add` 会认为它"不是新装的"，于是**跳过 bundle 登记**——装是装上了，却不会被加载。
+> 症状是 `--dump-config` 里看不到那三行。修法：先把 `dependencies` 里的
+> `dsh-goal-agenda` 删掉再重跑，或者手工把包名加进 `dsh.profile.bundles`。
+
+### 5.4 如果 npm registry 不可用
+
+在 `<DSH_HOME>\profiles\web\.npmrc` 里加一行镜像：
+
+```ini
+registry=https://registry.npmmirror.com/
+```
+
+再重跑 5.2。
+
+---
+
+## 6. 准备向量模型
+
+插件需要 `Xenova/bge-base-zh-v1.5` 的 ONNX 副本（int8 约 98MB）。
+
+```powershell
+cd <PLUGIN>
+pwsh -File scripts/download-model.ps1
+```
+
+它会从 `hf-mirror.com` 下载四个文件到 `models/bge-base-zh-v1.5/`。
+插件启动时会**优先用这个本地目录**；没有才回落到 HF Hub（并把端点指向镜像）。
+
+想跳过向量（只跑 goal + clock），把那两行的 `config.embedding` 设为 `{ enabled: false }`。
+功能仍在，只是新旧判断退回词法，认不出"同一个能力换了说法"。
+
+---
+
+## 7. 验证
+
+启动 DSH，按顺序验：
+
+```powershell
+# 1. 三个插件行都在组合后的配置里
+dsh --profile web --dump-config | Select-String 'goal-agenda|sinecause-memory|sinecause-clock'
+
+# 2. 端口没被旧实例占着（重启前检查）
+Get-NetTCPConnection -LocalPort 3080 -State Listen
+```
+
+然后在**这个工作区**新开一个会话，确认：
+
+| 检查 | 期望 |
+|---|---|
+| 工具列表 | 有 `plan` 和 `memory` |
+| 上下文末尾 | 出现 `## 目标与计划`，内容为"当前没有目标" |
+| 写一条记忆 | `state/memory.json` 里该条 `embedding` 长度为 **768** |
+| 攒够 12 条见闻 | 尾部多出 `### 该整理了` |
+| 静置 `intervalMinutes` | 会话自己起一轮，内容以 `[心跳]` 开头 |
+
+再开一个**工作区之外**的会话，确认它**没有** `plan` / `memory` 工具——
+这是隔离生效的证据。
+
+---
+
+## 8. 已知的坑
+
+这一节全是踩出来的，按踩到的顺序排。
+
+| 现象 | 原因 | 处理 |
+|---|---|---|
+| 插件加载了，但一个会话都没生效 | 配置写 `C:/...`、cwd 是 `C:\...`，字面量前缀比较永不相等 | 本版已在 `workspace-gate.js` 里 normalize；自己改过的话别退回字面量比较 |
+| `dsh plugin add` 报 `ERR_PNPM_IGNORED_BUILDS` 退出 1 | pnpm 默认不跑 onnxruntime/protobufjs 的安装脚本 | 命令加 `--allow-build=onnxruntime-node --allow-build=protobufjs` |
+| 装完之后 `--dump-config` 里没有这三行 | 上一次失败的安装把依赖留在了 manifest，重跑时被当成"不是新装的"，跳过 bundle 登记 | 删掉 `dependencies` 里那条再重装，或手工补进 `dsh.profile.bundles` |
+| 装了插件后应用起不来，日志 `EADDRINUSE` | 旧实例没退干净，端口被占 | 启动前确认 `Get-NetTCPConnection -LocalPort 3080` 无输出 |
+| 重启后插件又没了 | 把插入行写进了 profile 自己的 `cordis.patch.yml`，该文件会被插件安装重写 | 用 bundle 自带 patch（本包的 `cordis.patch.yml`），不要手改 profile 的 |
+| 心跳不触发 | 用了 `agent.inbox.append()` | 必须用 `agent.followup()`：前者只入队，不触发 `wakeDriver()` |
+| 每次写记忆都报三条"相近" | 库里的条目全长在同一语境，同领域不同事余弦就有 0.82–0.89 | 本版用三条判据（同类 + 共用关键词 + 分数过线）；阈值按尺度分开 |
+| `npm install` 报 500 | `registry.npmjs.org` 不可用 | profile 的 `.npmrc` 加镜像 |
+| 模型下载卡住 | `huggingface.co` 直连被污染；Node 不走系统代理 | 用第 6 步的脚本走 `hf-mirror.com` |
+| `@fufan/dsh-plugin-llm-wiki` 之类报 cannot resolve | 是 profile 里列了但没装的 bundle | 只是 warning 并跳过，不影响启动 |
+
+---
+
+## 9. 升级与回滚
+
+**只升级插件源码**（`link:` 安装）：改完重启 DSH 即可，不用重装。
+
+**回滚整个插件**：从 `<DSH_HOME>\profiles\web\package.json` 的
+`dsh.profile.bundles` 里删掉 `dsh-goal-agenda` 一行，重启。
+包还在，只是不加载——比卸载安全。
+
+**状态文件不会因为插件停用而损坏**，它们是纯 JSON。
+
+---
+
+## 10. 还没做完的部分
+
+分发之前请明确这些边界：
+
+- **整理仍是手动的。** 计数到阈值只会提醒，没有强制；她要自己调 `memory curate`。
+- **`wait` 没实现。** 现在只有时钟单向叫醒，没有"主动断开本轮、等条件再醒"。
+- **persona 没做。** 身份靠记忆里的 `self` 条目承载，没有开头的固定段落。
+- **召回是词法不是向量。** 向量只用于条目之间的新旧判断；
+  `systemPrompt.context()` 的 text 是同步函数，等不到模型。
+- **只在 Windows 上验证过。** macOS / Linux 的路径与进程行为未测。
+- **包名还叫 `dsh-goal-agenda`。** 它是从 goal 长出来的，名字没跟上范围；分发前应改成
+  `dsh-sinecause` 之类。改名要同步：包名、`exports`、profile 依赖、`bundles`、文档。
+- **没有多实例隔离。** 状态文件是绝对路径，一份工作区对应一份状态；两个工作区想要两个人格，
+  就复制两份、各自改路径。
+
+---
+
+## 11. 从零到跑通：完整命令
+
+```powershell
+# 1. 工作区
+cd <WORKSPACE>
+git init
+
+# 2. 改路径
+notepad <PLUGIN>\cordis.patch.yml
+
+# 3. 模型
+cd <PLUGIN>
+pwsh -File scripts/download-model.ps1
+
+# 4. 退出 DSH 后安装（dsh 不在 PATH 上就用 pnpm dsh）
+#    两个 --allow-build 不能省，否则 pnpm 以 ERR_PNPM_IGNORED_BUILDS 退出 1
+dsh plugin --profile web add file:<PLUGIN> --allow-build=onnxruntime-node --allow-build=protobufjs
+
+# 5. 启动
+dsh web                                  # 或 pnpm dsh web
+
+# 6. 验证
+dsh --profile web --dump-config | Select-String 'goal-agenda|sinecause'
+```
+
+装好之后第一次写记忆会加载模型，约 600ms；之后常驻。

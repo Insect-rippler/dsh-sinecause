@@ -1,0 +1,13 @@
+packages:
+  - .
+
+allowBuilds:
+  onnxruntime-node: set this to true or false
+  protobufjs: set this to true or false
+
+# onnxruntime-node 的原生二进制靠 install 脚本落地；pnpm 11 默认不跑脚本，
+# 这里显式放行这两个依赖。npm 官方 registry 在本机被挡，装包时用
+# `--registry https://registry.npmmirror.com`。
+onlyBuiltDependencies:
+  - onnxruntime-node
+  - protobufjs

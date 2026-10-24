@@ -1,0 +1,33 @@
+{
+  "name": "dsh-goal-agenda",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "目标与计划的尾部注入、plan 工具与记忆库，移植自 SineCause/Monroe",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./memory": "./src/memory/index.js",
+    "./clock": "./src/clock/index.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": [
+        "./cordis.patch.yml"
+      ]
+    }
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.3.1"
+  }
+}
