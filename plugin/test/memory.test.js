@@ -327,6 +327,25 @@ describe('retrieval', () => {
     assert.equal(result.matches[0].title, '向量检索')
   })
 
+  // 标题原来完全不参与打分：中文没有空格，"查询包含关键词"的精确判断在自然语言
+  // 提问里几乎不成立，于是 10 条库一句正常提问只捞得出 1 条。
+  it('credits a title that shares characters with the query', () => {
+    const titled = normalize({ kind: 'fact', title: '部署到 profile 里', content: 'x', timestamp: now / 1000 })
+    const other = normalize({ kind: 'fact', title: '无关标题', content: 'x', timestamp: now / 1000 })
+    const query = '怎么装到 profile 里'
+    const hit = scoreOf(titled, query, now)
+    const miss = scoreOf(other, query, now)
+    assert.ok(hit > miss, `标题重合应当加分：${hit} vs ${miss}`)
+    assert.ok(hit - miss <= 2, '标题最多加 2 分，不能盖过关键词命中')
+  })
+
+  it('recalls an entry whose title matches even without keyword hits', () => {
+    const titled = normalize({ kind: 'fact', title: '部署到 profile 里', content: 'x', timestamp: now / 1000 })
+    const other = normalize({ kind: 'fact', title: '无关标题', content: 'x', timestamp: now / 1000, position: 2 })
+    const result = retrieve([titled, other], '怎么装到 profile 里', { now })
+    assert.deepEqual(result.matches.map(entry => entry.title), ['部署到 profile 里'])
+  })
+
   it('drops entries below the score floor', () => {
     const result = retrieve(entries, '今天天气如何', { now })
     assert.deepEqual(result.matches, [])

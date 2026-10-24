@@ -98,7 +98,7 @@ function expired(entry, now) {
   return Number.isFinite(until) && until < now
 }
 
-/** 词法命中：关键词、标签、实体出现在查询里。 */
+/** 词法命中：关键词、标签、实体出现在查询里；标题按双字重合给部分分。 */
 function lexicalScore(entry, query) {
   let score = 0
   for (const keyword of entry.keywords ?? []) {
@@ -114,7 +114,26 @@ function lexicalScore(entry, query) {
     }
   }
   if (query && String(entry.content ?? '').includes(query)) score += 1
+  // 注意：本函数的返回值在 scoreOf 里还要乘 2，所以这里 +1 等于最终最多 +2 分——
+  // 半个关键词命中的分量。模糊信号不该和精确命中同权。
+  score += titleOverlap(entry, query)
   return score
+}
+
+/**
+ * 查询与标题的重合度，取值 [0, 1]。
+ *
+ * 中文没有空格，上面那些"查询包含关键词"的精确判断在自然语言提问里几乎不成立——
+ * 实测 10 条库、一句正常提问，只有 1 条过得了召回门槛。汉字双字重合是退而求其次的
+ * 分词替代：只比标题和关键词（正文太长，重合率高却没有区分度）。
+ */
+function titleOverlap(entry, query) {
+  const signal = bigrams([String(entry.title ?? ''), ...(entry.keywords ?? [])].join(' '))
+  const asked = bigrams(query)
+  if (signal.size === 0 || asked.size === 0) return 0
+  let hit = 0
+  for (const gram of asked) if (signal.has(gram)) hit += 1
+  return hit / Math.min(asked.size, signal.size)
 }
 
 /** 时效：90 天内线性衰减到 0。 */
