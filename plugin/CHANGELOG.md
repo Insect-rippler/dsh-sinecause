@@ -15,6 +15,9 @@
 
 - `scripts/` 进入 `files`：从 npm 安装也能拿到 `download-model.ps1`（离线下载向量模型）
   和 `check-embedding.mjs`（池化与相似度验收）。
+- **`LICENSE` 进包根。** 之前许可证文件只在仓库根，npm 包里没有，registry 页面上显示"无许可证文件"。
+- **忘了配 `workspaceRoot` 的报错改写。** 原文案只说"用 `file:` 装法时"，但从 npm 装的包
+  同样在 `node_modules` 里，是同一个坑；现在把两种装法都写清楚，并点名 `link:` 不需要配。
 
 ## 0.1.0 — 2026-10-24
 

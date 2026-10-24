@@ -46,8 +46,10 @@ export function resolveWorkspaceRoot(configured, options = {}) {
   const fallback = options.packageParent ?? DEFAULT_WORKSPACE
   if (insideDependencyTree(fallback)) {
     throw new Error(
-      `工作区解析到了依赖目录（${fallback}）。用 file: 装法时必须显式配置 workspaceRoot，`
-      + '或设置环境变量 SINECAUSE_WORKSPACE。',
+      `工作区解析到了依赖目录（${fallback}）。`
+      + '从 npm 或 file: 安装时包就在 node_modules 里，必须显式告诉插件工作区在哪：'
+      + '在插件配置（或 profile 的 cordis.patch.yml，按行 id 覆盖）里写 workspaceRoot，'
+      + '或设置环境变量 SINECAUSE_WORKSPACE。用 link: 安装则不需要。',
     )
   }
   return fallback
