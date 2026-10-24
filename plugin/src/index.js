@@ -1,5 +1,5 @@
 /**
- * dsh-goal-agenda — 目标与计划的尾部注入 + `plan` 工具。
+ * dsh-sinecause — 目标与计划的尾部注入 + `plan` 工具。
  *
  * 两个挂点，都注册在该 Agent 自己的 scope 里（`agent.ctx`）：
  *   1. `systemPrompt.context()` —— 把 agenda 渲染进 loop 的 runtime-context 快照。
@@ -21,7 +21,7 @@ import { inWorkspace } from './workspace-gate.js'
 export { inWorkspace } from './workspace-gate.js'
 
 /** Cordis 插件名。 */
-export const name = 'goal-agenda'
+export const name = 'sinecause-goal'
 
 /** 依赖的服务：工具注册与提示词装配。 */
 export const inject = ['tools', 'systemPrompt']
@@ -217,7 +217,7 @@ export function apply(ctx, config) {
       registerForAgent(agent, resolved)
     } catch (error) {
       // 注册失败只该让这个会话少两个能力，不该让会话建不起来。
-      ctx.logger?.warn?.(`goal-agenda: 注册失败：${String(error?.message ?? error)}`)
+      ctx.logger?.warn?.(`sinecause-goal: 注册失败：${String(error?.message ?? error)}`)
     }
   })
 }

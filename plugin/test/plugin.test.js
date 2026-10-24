@@ -65,7 +65,7 @@ after(() => {
 
 describe('plugin wiring', () => {
   it('declares the services it needs', () => {
-    assert.equal(name, 'goal-agenda')
+    assert.equal(name, 'sinecause-goal')
     assert.deepEqual(inject, ['tools', 'systemPrompt'])
   })
 
