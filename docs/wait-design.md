@@ -34,13 +34,24 @@
 **A 是唯一确定性的**：`reject` 在 loop 里直接 `turnEnds = {kind:'blocked'}` 然后 break
 （`agent-loop/src/agent.ts:319-322`），不依赖模型配合。
 
-代价是语义——`blocked` 会被读成"卡住"。有两条缓解：
+代价是语义——`blocked` 会被读成"卡住"。**但界面不会这么读**（见 3.1），所以这个挪用是安全的。
 
-1. `wait` 的工具结果里把话说清楚（"本轮已按你的要求结束"），模型看得见；
-2. 醒来那一轮把 `blocked` 当作正常状态，不当故障。
+### 3.1 `blocked` 在界面上不显示为错误（已查实）
 
-如果以后 DSH 允许插件贡献 turn/end reason（map 已经是 merge-extensible，只差 loop 愿意采信），
-可以把 `blocked` 换成 `waiting`。**这是应该向上游提的**，不是我们能绕开的。
+`ui-chat/src/client/conversation-nodes/turn-error.ts:36-51` 的 `endFailure()` 只对三种 reason
+产生失败行：`error`、`aborted`（且仅限登出）、`interrupted`。其余走 default：
+
+```ts
+default:
+  // Completed, blocked, max-tokens, forked, and plugin-merged endings have no failure row.
+  return undefined
+```
+
+所以 `blocked` 收轮在界面上表现为**一轮正常结束**——只有已停止的 turn 摘要，没有红色错误。
+它在会话日志里仍然是 `blocked`，但那是给日志和后续分析看的，不是给用户看的。
+
+这同时说明 `turn/end` 的 reason map 在实践中确实被扩展过（`interrupted` 就是恢复流程加进来的），
+但**产生 reason 的仍然只有 loop**。想拿到 `waiting` 这样的自定义 reason，得改 loop 或等上游开口子。
 
 ## 4. 唤醒从哪来
 
@@ -98,8 +109,10 @@ wait { at?: 'HH:MM' | 'YYYY-MM-DD HH:MM', afterSeconds?: number, reason?: string
 1. ~~`schedule.create` 能否对**未加载**的会话投递？~~ **已查实：能。**
    `runtime.ts` 先 `resolveAgent` 激活会话，再 `followup`，再 flush（见 4.1）。
    跨重启也成立：过期任务在启动扫描时补投。
-2. UI 把 `blocked` 渲染成什么？如果显示成红色错误，A 方案的用户观感要重新评估。
-3. 模型在收到 `wait` 结果后、被 reject 之前，还会不会调别的工具？—— 实测一轮日志。
+2. ~~UI 把 `blocked` 渲染成什么？~~ **已查实：不产生错误行**，只表现为一轮正常结束
+   （`turn-error.ts` 的 default 分支写明 blocked 无 failure row）。A 方案可用。
+3. 模型在收到 `wait` 结果后、被 reject 之前，还会不会调别的工具？—— 要实测一轮日志。
+   这一条不影响设计，只影响"要不要在 reject 前多拦一层"。
 
 ## 7. 不做
 
