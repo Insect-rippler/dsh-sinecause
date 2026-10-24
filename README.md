@@ -9,9 +9,9 @@
 
 | 入口 | 作用 |
 |---|---|
-| `dsh-goal-agenda` | 目标与计划。Agent 自己立 plan、分步推进；内容注入在**上下文末尾**，持续把注意力拉回当前步骤 |
-| `dsh-goal-agenda/memory` | 记忆库。常驻档案（`anchor`/`self`）每次请求都注入，流水（`skill`/`fact`/`episode`/`promise`）按相似度召回 |
-| `dsh-goal-agenda/clock` | 时钟。没人说话时按间隔叫醒它，让它自己找事做 |
+| `dsh-sinecause` | 目标与计划。Agent 自己立 plan、分步推进；内容注入在**上下文末尾**，持续把注意力拉回当前步骤 |
+| `dsh-sinecause/memory` | 记忆库。常驻档案（`anchor`/`self`）每次请求都注入，流水（`skill`/`fact`/`episode`/`promise`）按相似度召回 |
+| `dsh-sinecause/clock` | 时钟。没人说话时按间隔叫醒它，让它自己找事做 |
 
 三者都只对 cwd 落在 `workspaceRoot` 下的会话生效——装进共享 profile 不会影响其它工作区的会话。
 
@@ -32,33 +32,41 @@
 
 ## 快速开始
 
-完整步骤见 **[docs/deploy.md](docs/deploy.md)**，包括前置条件、改路径、安装、
-模型准备、验收清单和十条踩过的坑。
+完整步骤见 **[docs/deploy.md](docs/deploy.md)**：前置条件、安装、模型准备、
+验收清单和十条踩过的坑。
 
-最短路径：
+最短路径（`link:` 装法，零配置）：
 
 ```powershell
-# 1. 工作区自成一个项目根
+# 1. 工作区自成一个项目根，插件包放在 <WORKSPACE>/plugin
 cd <WORKSPACE>; git init
 
-# 2. 改 plugin/cordis.patch.yml 里的三处绝对路径
-
-# 3. 下载向量模型（约 98MB，走 hf-mirror）
+# 2. 下载向量模型（约 98MB，走 hf-mirror）
 cd plugin; pwsh -File scripts/download-model.ps1
 
+# 3. 装进插件目录自己的 node_modules（link: 不会替你装依赖）
+pnpm install --registry https://registry.npmmirror.com
+
 # 4. 完全退出 DSH 后安装
-dsh plugin --profile web add file:<PLUGIN> --allow-build=onnxruntime-node --allow-build=protobufjs
+cd <WORKSPACE>
+dsh plugin --profile web add link:<WORKSPACE>/plugin --allow-build=onnxruntime-node --allow-build=protobufjs
 ```
+
+**用 `file:` 装法的话要多做一步**：包会被复制进 profile 的 `node_modules`，
+"默认取包的上一级目录"就指错了，必须在 `plugin/cordis.patch.yml` 里显式写
+`workspaceRoot`，或者设环境变量 `SINECAUSE_WORKSPACE`。
+不写的话插件会在加载时直接报错，而不是把状态文件写进依赖目录。
 
 ## 目录
 
 ```
 plugin/            Cordis 插件包（goal + memory + clock）
-  src/goal         目标与计划的尾部注入 + plan 工具
-  src/memory       记忆库：常驻档案、向量相似、整理
-  src/clock        心跳：按间隔醒来
-  src/workspace-gate.js   工作区判定（两个插件共用）
-  test/            121 个用例：node --test
+  src/index.js           目标：尾部注入 + plan 工具
+  src/memory/            记忆库：常驻档案、向量相似、整理
+  src/clock/             心跳：按间隔醒来
+  src/paths.js           工作区与状态文件的默认解析
+  src/workspace-gate.js  工作区判定（三个插件共用）
+  test/                  130 个用例：node --test
 docs/deploy.md     部署教程
 ```
 
@@ -71,9 +79,6 @@ docs/deploy.md     部署教程
 - **没有 persona。** 身份靠记忆里的 `self` 条目承载。
 - **召回是词法，不是向量。** 向量只用在条目之间的新旧判断上。
 - **只在 Windows 上验证过。**
-- **包名待改。** 包还叫 `dsh-goal-agenda`，范围已经超出 goal；改成 `dsh-sinecause` 需要同步
-  `exports`、profile 依赖、bundles 与文档。
-- **没有许可证文件。** 采用何种许可由仓库所有者决定。
 
 ## 测试
 
@@ -81,7 +86,6 @@ docs/deploy.md     部署教程
 cd plugin && node --test
 ```
 
-## 名字
+## 许可
 
-仓库叫 sinecause，包还叫 dsh-goal-agenda——前者是产品，后者是从 goal 长出来的包名。
-改名排在 1.0 之前。
+[MIT](LICENSE)

@@ -32,7 +32,9 @@ goal、memory 第一层、时钟已实现，wait 与 persona 待定。
 AGENTS.md            本文件
 state/agenda.json    目标与计划的唯一状态文件（与 SineCause 的 agenda.json 同构）
 state/memory.json    记忆库（v2 schema，与 SineCause 的 memory.json 字段兼容）
-plugin/              dsh-goal-agenda：goal + memory 两个入口，见 plugin/README.md
+plugin/              dsh-sinecause：goal + memory + clock 三个入口，见 plugin/README.md
+docs/deploy.md       部署教程（对外分发用）
+README.md            仓库门面：它是什么、三个设计取舍、限制
 ```
 
 两条必须守住的语义：

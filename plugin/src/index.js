@@ -13,9 +13,8 @@
  * 插件不带任何 @deepseek-ai 依赖，所以能以 `file:` 依赖装进 profile。
  */
 
-import { isAbsolute } from 'node:path'
-
 import { Agenda, MAX_ACTIVE, normalizeAt } from './agenda.js'
+import { resolveStatePath, resolveWorkspaceRoot } from './paths.js'
 import { renderAgendaBlock } from './render.js'
 import { inWorkspace } from './workspace-gate.js'
 
@@ -106,23 +105,17 @@ const OUTPUT_SCHEMA = {
   required: ['agenda'],
 }
 
-/** 校验配置。缺 statePath 就在加载时失败，而不是第一次请求时才炸。 */
+/** 校验配置；路径缺省时按工作区默认解析，解析不了就在加载时失败。 */
 function resolveConfig(config) {
-  const statePath = config?.statePath
-  if (typeof statePath !== 'string' || !isAbsolute(statePath)) {
-    throw new TypeError('goal-agenda: statePath 必须是 agenda.json 的绝对路径')
-  }
+  const workspaceRoot = resolveWorkspaceRoot(config?.workspaceRoot)
+  const statePath = resolveStatePath(config?.statePath, workspaceRoot, 'agenda.json')
   const maxGoalsShown = config?.maxGoalsShown ?? 5
   if (!Number.isSafeInteger(maxGoalsShown) || maxGoalsShown < 1) {
-    throw new TypeError('goal-agenda: maxGoalsShown 必须是正整数')
+    throw new TypeError('dsh-sinecause: maxGoalsShown 必须是正整数')
   }
   const maxActive = config?.maxActive ?? MAX_ACTIVE
   if (!Number.isSafeInteger(maxActive) || maxActive < 1) {
-    throw new TypeError('goal-agenda: maxActive 必须是正整数')
-  }
-  const workspaceRoot = config?.workspaceRoot
-  if (workspaceRoot !== undefined && (typeof workspaceRoot !== 'string' || !isAbsolute(workspaceRoot))) {
-    throw new TypeError('goal-agenda: workspaceRoot 必须是绝对路径')
+    throw new TypeError('dsh-sinecause: maxActive 必须是正整数')
   }
   return { statePath, maxGoalsShown, maxActive, workspaceRoot }
 }

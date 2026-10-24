@@ -9,11 +9,11 @@
  * 只对 cwd 落在 `workspaceRoot` 下的会话注册。
  */
 
-import { isAbsolute } from 'node:path'
-
 import { GROWTH_KINDS, KINDS, MemoryStore, RESIDENT_KINDS, STATUSES, summarize } from './store.js'
 import { renderMemoryBlock, retrieve, sameSubjectEntries, similarity } from './retrieval.js'
 import { backfillEmbeddings, createEmbedder, embeddingFields, entrySimilarity } from './embedding.js'
+import { resolveStatePath, resolveWorkspaceRoot } from '../paths.js'
+import { inWorkspace } from '../workspace-gate.js'
 
 /** Cordis 插件名。 */
 export const name = 'sinecause-memory'
@@ -86,16 +86,10 @@ const OUTPUT_SCHEMA = {
   required: ['result'],
 }
 
-/** 校验配置；statePath 缺失就在加载时失败。 */
+/** 校验配置；路径缺省时按工作区默认解析，解析不了就在加载时失败。 */
 function resolveConfig(config) {
-  const statePath = config?.statePath
-  if (typeof statePath !== 'string' || !isAbsolute(statePath)) {
-    throw new TypeError('sinecause-memory: statePath 必须是 memory.json 的绝对路径')
-  }
-  const workspaceRoot = config?.workspaceRoot
-  if (workspaceRoot !== undefined && (typeof workspaceRoot !== 'string' || !isAbsolute(workspaceRoot))) {
-    throw new TypeError('sinecause-memory: workspaceRoot 必须是绝对路径')
-  }
+  const workspaceRoot = resolveWorkspaceRoot(config?.workspaceRoot)
+  const statePath = resolveStatePath(config?.statePath, workspaceRoot, 'memory.json')
   const maxChars = config?.maxChars ?? 2400
   if (!Number.isSafeInteger(maxChars) || maxChars < 1) {
     throw new TypeError('sinecause-memory: maxChars 必须是正整数')
@@ -123,8 +117,6 @@ function resolveConfig(config) {
   }
   return { statePath, workspaceRoot, maxChars, topK, curationEvery, embedding, vectorThreshold }
 }
-
-import { inWorkspace } from '../workspace-gate.js'
 
 export { inWorkspace } from '../workspace-gate.js'
 

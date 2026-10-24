@@ -1,9 +1,9 @@
-# dsh-goal-agenda
+# dsh-sinecause
 
 两个入口，一个包：
 
-- `dsh-goal-agenda` —— 目标与计划的尾部注入 + `plan` 工具
-- `dsh-goal-agenda/memory` —— 记忆库：常驻档案 + 按需召回 + `memory` 工具
+- `dsh-sinecause` —— 目标与计划的尾部注入 + `plan` 工具
+- `dsh-sinecause/memory` —— 记忆库：常驻档案 + 按需召回 + `memory` 工具
 
 分别移植自 SineCause 的 `function/plan/plan.py`、`Monroe/core/agenda.py`、
 `Monroe/core/turn.py::_agendaBlock`，以及 `ConsciousnessRealm/memory/`。
@@ -143,7 +143,7 @@ transformers.js 加载 ONNX，int8 量化。
 
 ## clock：没有你说话的时候她还活着
 
-`dsh-goal-agenda/clock` 每 `intervalMinutes` 走一跳，挑一个空闲够久的工作区会话，
+`dsh-sinecause/clock` 每 `intervalMinutes` 走一跳，挑一个空闲够久的工作区会话，
 用 **`agent.followup()`** 投一条心跳消息。用 `followup` 而不是 `inbox.append` 是有原因的：
 `append` 只把消息放进收件箱，**不会叫醒驱动**，消息会一直躺着等你下次说话才被顺带处理。
 `followup` 内部走 `send(msg, 'next-turn', true)` → `wakeDriver()`，才真的起一轮。
@@ -172,8 +172,8 @@ goal：
 
 | 字段 | 默认 | 说明 |
 |---|---|---|
-| `statePath` | 必填 | `agenda.json` 的绝对路径 |
-| `workspaceRoot` | 不设限 | 只有 cwd 在它下面的会话才注册；绝对路径 |
+| `workspaceRoot` | 包的上一级目录 | 只有 cwd 在它下面的会话才注册；绝对路径，或用 `SINECAUSE_WORKSPACE` |
+| `statePath` | `<workspaceRoot>/state/agenda.json` | 目标状态文件；绝对路径 |
 | `maxGoalsShown` | `5` | 尾部最多显示几个进行中的目标 |
 | `maxActive` | `6` | 同时推进的目标上限，超过就拒绝 create |
 
@@ -181,8 +181,8 @@ memory：
 
 | 字段 | 默认 | 说明 |
 |---|---|---|
-| `statePath` | 必填 | `memory.json` 的绝对路径 |
-| `workspaceRoot` | 不设限 | 同上 |
+| `workspaceRoot` | 同上 | 同上 |
+| `statePath` | `<workspaceRoot>/state/memory.json` | 记忆库文件；绝对路径 |
 | `maxChars` | `2400` | 注入块的字节预算 |
 | `topK` | `8` | 最多召回几条 |
 | `curationEvery` | `12` | 攒够几条见闻后提醒整理 |

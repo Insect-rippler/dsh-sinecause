@@ -40,10 +40,10 @@ function fakeAgent(cwd) {
   }
 }
 
-/** 跑一次 apply，并让给定 cwd 的 Agent 被创建。 */
+/** 跑一次 apply，并让给定 cwd 的 Agent 被创建。默认把工作区设成它的 cwd。 */
 function mount(config, cwd) {
   const ctx = fakeCtx()
-  apply(ctx, config)
+  apply(ctx, { workspaceRoot: cwd, ...config })
   const agent = fakeAgent(cwd)
   ctx.listeners.get('agent/created')?.({ agent })
   return agent
@@ -87,12 +87,17 @@ describe('plugin wiring', () => {
     assert.equal(inside.registered.length, 1)
   })
 
+  it('resolves defaults instead of demanding a state path', () => {
+    // 不给路径也能加载：默认取工作区根与 <workspace>/state/agenda.json。
+    const agent = mount({}, workspace)
+    assert.equal(agent.registered.length, 1)
+  })
+
   it('fails at load on invalid configuration', () => {
-    assert.throws(() => apply(fakeCtx(), {}), /statePath/)
     assert.throws(() => apply(fakeCtx(), { statePath: 'relative/agenda.json' }), /statePath/)
+    assert.throws(() => apply(fakeCtx(), { workspaceRoot: 'nope' }), /workspaceRoot/)
     assert.throws(() => apply(fakeCtx(), { statePath, maxGoalsShown: 0 }), /maxGoalsShown/)
     assert.throws(() => apply(fakeCtx(), { statePath, maxActive: 0 }), /maxActive/)
-    assert.throws(() => apply(fakeCtx(), { statePath, workspaceRoot: 'nope' }), /workspaceRoot/)
   })
 })
 

@@ -37,10 +37,10 @@ function fakeAgent(cwd) {
   }
 }
 
-/** 跑一次 apply，并让给定 cwd 的 Agent 被创建。默认关掉向量，测试不联网。 */
+/** 跑一次 apply，并让给定 cwd 的 Agent 被创建。默认关掉向量、工作区设成该 cwd。 */
 function mount(config, cwd) {
   const ctx = fakeCtx()
-  apply(ctx, { embedding: { enabled: false }, ...config })
+  apply(ctx, { embedding: { enabled: false }, workspaceRoot: cwd, ...config })
   const agent = fakeAgent(cwd)
   ctx.listeners.get('agent/created')?.({ agent })
   return agent
@@ -82,12 +82,16 @@ describe('memory plugin wiring', () => {
     assert.deepEqual(outside.contexts, [])
   })
 
+  it('resolves defaults instead of demanding a state path', () => {
+    const agent = mount({}, workspace)
+    assert.equal(agent.registered.length, 1)
+  })
+
   it('fails at load on invalid configuration', () => {
-    assert.throws(() => apply(fakeCtx(), {}), /statePath/)
-    assert.throws(() => apply(fakeCtx(), { statePath: 'relative/memory.json' }), /statePath/)
+    assert.throws(() => apply(fakeCtx(), { embedding: { enabled: false }, statePath: 'relative/memory.json' }), /statePath/)
+    assert.throws(() => apply(fakeCtx(), { embedding: { enabled: false }, workspaceRoot: 'nope' }), /workspaceRoot/)
     assert.throws(() => apply(fakeCtx(), { statePath, maxChars: 0 }), /maxChars/)
     assert.throws(() => apply(fakeCtx(), { statePath, topK: 0 }), /topK/)
-    assert.throws(() => apply(fakeCtx(), { statePath, workspaceRoot: 'nope' }), /workspaceRoot/)
   })
 
   it('matches the root and its descendants only', () => {

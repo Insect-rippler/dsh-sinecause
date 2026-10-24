@@ -14,7 +14,7 @@
 
 | 部件 | 作用 | 装在哪 |
 |---|---|---|
-| **插件包** `dsh-goal-agenda` | 三个 Cordis 插件入口：`/`（goal）、`/memory`、`/clock` | DSH profile 的依赖 |
+| **插件包** `dsh-sinecause` | 三个 Cordis 插件入口：`/`（goal）、`/memory`、`/clock` | DSH profile 的依赖 |
 | **工作区隔离** | 一个 `.git` 目录，让这个工作区成为独立的项目根 | 你的工作区 |
 | **状态文件** | `agenda.json`（目标）、`memory.json`（记忆） | 你的工作区 `state/` |
 | **向量模型** | 768 维 bge-base-zh，判断"同一件事又有了新情况" | 插件包内 `models/` |
@@ -61,7 +61,7 @@ DSH 用"从 cwd 向上第一个含 `.git` 的目录"判定项目根，
     memory.json            第一次写入时自动创建
   plugin/                  插件包本体
     src/goal, src/memory, src/clock, src/workspace-gate.js
-    cordis.patch.yml       ← 要改路径的那份
+    cordis.patch.yml       ← 挂载声明（多数情况不用改）
     scripts/download-model.ps1
 ```
 
@@ -83,33 +83,51 @@ git init
 
 ---
 
-## 4. 改路径
+## 4. 配置工作区（多数情况不用配）
 
-编辑 `<PLUGIN>/cordis.patch.yml`，把三处绝对路径换成你自己的：
+`cordis.patch.yml` 里**没有绝对路径**。工作区按这个顺序解析：
+
+1. 插件配置里的 `workspaceRoot`
+2. 环境变量 `SINECAUSE_WORKSPACE`
+3. 包的上一级目录（`<PLUGIN>/..`）
+
+状态文件默认放在 `<workspaceRoot>/state/` 下，按需创建。
+
+所以：
+
+| 安装方式 | 要不要配 |
+|---|---|
+| `link:`，包在 `<WORKSPACE>/plugin` | **不用**，第 3 条正好指向工作区 |
+| `file:`，包被复制进 profile 的 `node_modules` | **必须配**——第 3 条会指到依赖目录 |
+
+`file:` 装法下，编辑 `<PLUGIN>/cordis.patch.yml` 补上：
 
 ```yaml
 - insert:
-    - id: goal-agenda
-      name: 'dsh-goal-agenda'
+    - id: sinecause-goal
+      name: 'dsh-sinecause'
       config:
-        statePath: <WORKSPACE>/state/agenda.json
         workspaceRoot: <WORKSPACE>
 
     - id: sinecause-memory
-      name: 'dsh-goal-agenda/memory'
+      name: 'dsh-sinecause/memory'
       config:
-        statePath: <WORKSPACE>/state/memory.json
         workspaceRoot: <WORKSPACE>
 
     - id: sinecause-clock
-      name: 'dsh-goal-agenda/clock'
+      name: 'dsh-sinecause/clock'
       config:
         intervalMinutes: 10          # 快速迭代期用 10，稳定后改 30 或更大
         workspaceRoot: <WORKSPACE>
 ```
 
+也可以不改文件，改成启动前设 `SINECAUSE_WORKSPACE=<WORKSPACE>`。
+
+**忘了配会怎样：** 插件不会把状态文件写进 `node_modules`，而是在加载时直接报错
+`工作区解析到了依赖目录`。这是故意的——静默写错地方比启动失败更难查。
+
 **正斜杠反斜杠都行**，但 `workspaceRoot` 必须在规范化后与会话 cwd 相等
-（本版插件会 normalize 并忽略大小写；早期版本这里有个致命 bug，见第 8 节）。
+（插件会 normalize 并忽略大小写；早期版本这里有个致命 bug，见第 8 节）。
 
 ---
 
@@ -121,18 +139,26 @@ git init
 
 ### 5.2 装包
 
-先用 `dsh` 命令（已安装 CLI 的机器）：
+推荐 `link:`：零配置、改源码后重启即生效。
 
 ```powershell
-dsh plugin --profile web add file:<PLUGIN> --allow-build=onnxruntime-node --allow-build=protobufjs
+# 先给插件目录自己装依赖——link: 不会替它装
+cd <PLUGIN>
+pnpm install --registry https://registry.npmmirror.com/
+
+# 再挂进 profile
+dsh plugin --profile web add link:<PLUGIN> --allow-build=onnxruntime-node --allow-build=protobufjs
 ```
 
 如果 DSH 是**源码检出**、`dsh` 不在 PATH 上，就用检出里的脚本：
 
 ```powershell
 cd <CHECKOUT>
-pnpm dsh plugin --profile web add file:<PLUGIN> --allow-build=onnxruntime-node --allow-build=protobufjs
+pnpm dsh plugin --profile web add link:<PLUGIN> --allow-build=onnxruntime-node --allow-build=protobufjs
 ```
+
+想装成冻结副本就把 `link:` 换成 `file:`——但那样必须按第 4 节显式配置
+`workspaceRoot`，因为包会被复制进 `node_modules`。
 
 **那两个 `--allow-build` 不能省。** 插件依赖 `@huggingface/transformers`，它以
 `onnxruntime-node` 和 `protobufjs` 作为后端，pnpm 11 默认不跑这两个包的安装脚本；
@@ -154,7 +180,7 @@ pnpm dsh plugin --profile web add file:<PLUGIN> --allow-build=onnxruntime-node -
    pnpm install --registry https://registry.npmmirror.com/
    ```
    （`<PLUGIN>/pnpm-workspace.yaml` 里的 `onlyBuiltDependencies` 就是给这一步用的。）
-2. `link:` 装完后，`node_modules/dsh-goal-agenda` 会指向插件目录，改完重启即可。
+2. `link:` 装完后，`node_modules/dsh-sinecause` 会指向插件目录，改完重启即可。
 
 两种方式都要求包在 `package.json` 里声明了 `dsh.bundle`——本包已经声明：
 
@@ -166,8 +192,8 @@ pnpm dsh plugin --profile web add file:<PLUGIN> --allow-build=onnxruntime-node -
 
 ```powershell
 Get-Content <DSH_HOME>\profiles\web\package.json
-# dependencies 里有 dsh-goal-agenda
-# dsh.profile.bundles 里也有 dsh-goal-agenda
+# dependencies 里有 dsh-sinecause
+# dsh.profile.bundles 里也有 dsh-sinecause
 ```
 
 `dsh plugin add` 会在安装成功后把包名**追加到 `dsh.profile.bundles`**。
@@ -175,7 +201,7 @@ Get-Content <DSH_HOME>\profiles\web\package.json
 > **例外，踩过一次：** 如果上一次安装失败但 `package.json` 里已经留下了这条依赖，
 > 重跑 `add` 会认为它"不是新装的"，于是**跳过 bundle 登记**——装是装上了，却不会被加载。
 > 症状是 `--dump-config` 里看不到那三行。修法：先把 `dependencies` 里的
-> `dsh-goal-agenda` 删掉再重跑，或者手工把包名加进 `dsh.profile.bundles`。
+> `dsh-sinecause` 删掉再重跑，或者手工把包名加进 `dsh.profile.bundles`。
 
 ### 5.4 如果 npm registry 不可用
 
@@ -257,7 +283,7 @@ Get-NetTCPConnection -LocalPort 3080 -State Listen
 **只升级插件源码**（`link:` 安装）：改完重启 DSH 即可，不用重装。
 
 **回滚整个插件**：从 `<DSH_HOME>\profiles\web\package.json` 的
-`dsh.profile.bundles` 里删掉 `dsh-goal-agenda` 一行，重启。
+`dsh.profile.bundles` 里删掉 `dsh-sinecause` 一行，重启。
 包还在，只是不加载——比卸载安全。
 
 **状态文件不会因为插件停用而损坏**，它们是纯 JSON。
@@ -274,36 +300,38 @@ Get-NetTCPConnection -LocalPort 3080 -State Listen
 - **召回是词法不是向量。** 向量只用于条目之间的新旧判断；
   `systemPrompt.context()` 的 text 是同步函数，等不到模型。
 - **只在 Windows 上验证过。** macOS / Linux 的路径与进程行为未测。
-- **包名还叫 `dsh-goal-agenda`。** 它是从 goal 长出来的，名字没跟上范围；分发前应改成
+- **包名还叫 `dsh-sinecause`。** 它是从 goal 长出来的，名字没跟上范围；分发前应改成
   `dsh-sinecause` 之类。改名要同步：包名、`exports`、profile 依赖、`bundles`、文档。
 - **没有多实例隔离。** 状态文件是绝对路径，一份工作区对应一份状态；两个工作区想要两个人格，
-  就复制两份、各自改路径。
+  就复制两份、各自配 workspaceRoot。
 
 ---
 
 ## 11. 从零到跑通：完整命令
 
 ```powershell
-# 1. 工作区
+# 1. 工作区（插件包放在 <WORKSPACE>\plugin）
 cd <WORKSPACE>
 git init
 
-# 2. 改路径
-notepad <PLUGIN>\cordis.patch.yml
-
-# 3. 模型
+# 2. 模型
 cd <PLUGIN>
 pwsh -File scripts/download-model.ps1
 
+# 3. 插件自己的依赖（link: 不会替你装）
+pnpm install --registry https://registry.npmmirror.com/
+
 # 4. 退出 DSH 后安装（dsh 不在 PATH 上就用 pnpm dsh）
 #    两个 --allow-build 不能省，否则 pnpm 以 ERR_PNPM_IGNORED_BUILDS 退出 1
-dsh plugin --profile web add file:<PLUGIN> --allow-build=onnxruntime-node --allow-build=protobufjs
+dsh plugin --profile web add link:<PLUGIN> --allow-build=onnxruntime-node --allow-build=protobufjs
 
 # 5. 启动
 dsh web                                  # 或 pnpm dsh web
 
 # 6. 验证
-dsh --profile web --dump-config | Select-String 'goal-agenda|sinecause'
+dsh --profile web --dump-config | Select-String 'sinecause'
 ```
+
+用 `file:` 装法的话，第 1 步之后还要按第 4 节配置 `workspaceRoot`。
 
 装好之后第一次写记忆会加载模型，约 600ms；之后常驻。

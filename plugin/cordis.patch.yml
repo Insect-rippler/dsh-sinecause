@@ -1,30 +1,28 @@
 # ============================================================================
-# dsh-goal-agenda —— bundle 自带的挂载声明
+# dsh-sinecause —— bundle 自带的挂载声明
 # ============================================================================
 # profile 只要在 `dsh.profile.bundles` 里列出本包名即生效，不必手改 profile 的
 # cordis.patch.yml —— 那个文件会被插件安装重写，写进去的行会丢。
 #
-# 两个插件都按 cwd 过滤，只有会话工作目录落在 workspaceRoot 下才注册工具与注入。
-# 这里的绝对路径是本机的，不是可移植配置。
+# 这里**不写任何绝对路径**：工作区默认取包的上一级目录，状态文件默认放在
+# <workspace>/state/ 下。所以：
+#   - link: 安装时（包就在工作区里）零配置即可；
+#   - file: 安装时包被复制进 node_modules，默认解析会直接报错，
+#     这时必须显式写 workspaceRoot，或设环境变量 SINECAUSE_WORKSPACE。
+#
+# 三个插件都按 cwd 过滤：只有会话工作目录落在 workspaceRoot 下才注册工具与注入。
 # ============================================================================
 
 - insert:
-    - id: goal-agenda
-      name: 'dsh-goal-agenda'
-      config:
-        statePath: C:/Users/isyhn/deepseek-harness/workspaces/enthnicGroup/state/agenda.json
-        workspaceRoot: C:/Users/isyhn/deepseek-harness/workspaces/enthnicGroup
+    - id: sinecause-goal
+      name: 'dsh-sinecause'
 
     - id: sinecause-memory
-      name: 'dsh-goal-agenda/memory'
-      config:
-        statePath: C:/Users/isyhn/deepseek-harness/workspaces/enthnicGroup/state/memory.json
-        workspaceRoot: C:/Users/isyhn/deepseek-harness/workspaces/enthnicGroup
+      name: 'dsh-sinecause/memory'
 
     # 时钟：没人在说话时按间隔叫醒她。
     # 现在是快速迭代期，10 分钟。稳定之后改成 30（中等）或 60。
     - id: sinecause-clock
-      name: 'dsh-goal-agenda/clock'
+      name: 'dsh-sinecause/clock'
       config:
         intervalMinutes: 10
-        workspaceRoot: C:/Users/isyhn/deepseek-harness/workspaces/enthnicGroup

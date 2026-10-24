@@ -1,9 +1,18 @@
 {
-  "name": "dsh-goal-agenda",
+  "name": "dsh-sinecause",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "目标与计划的尾部注入、plan 工具与记忆库，移植自 SineCause/Monroe",
+  "description": "给 DSH 上的一个会话装上自己的目标、记忆和作息：goal / memory / clock 三个插件",
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "agent",
+    "memory",
+    "goal"
+  ],
   "main": "src/index.js",
   "exports": {
     ".": "./src/index.js",

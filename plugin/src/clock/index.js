@@ -9,8 +9,8 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { isAbsolute } from 'node:path'
 
+import { resolveWorkspaceRoot } from '../paths.js'
 import { inWorkspace } from '../workspace-gate.js'
 import {
   DEFAULT_INTERVAL_MINUTES,
@@ -30,10 +30,7 @@ function resolveConfig(config) {
   if (typeof intervalMinutes !== 'number' || !(intervalMinutes > 0) || !Number.isFinite(intervalMinutes)) {
     throw new TypeError('sinecause-clock: intervalMinutes 必须是正数')
   }
-  const workspaceRoot = config?.workspaceRoot
-  if (workspaceRoot !== undefined && (typeof workspaceRoot !== 'string' || !isAbsolute(workspaceRoot))) {
-    throw new TypeError('sinecause-clock: workspaceRoot 必须是绝对路径')
-  }
+  const workspaceRoot = resolveWorkspaceRoot(config?.workspaceRoot)
   const prompt = config?.prompt
   if (prompt !== undefined && typeof prompt !== 'string') {
     throw new TypeError('sinecause-clock: prompt 必须是字符串')
