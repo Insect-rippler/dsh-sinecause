@@ -78,7 +78,7 @@ plugin/            Cordis 插件包（goal + memory + clock）
   src/clock/             心跳：按间隔醒来
   src/paths.js           工作区与状态文件的默认解析
   src/workspace-gate.js  工作区判定（三个插件共用）
-  test/                  130 个用例：node --test
+  test/                  137 个用例：node --test
 docs/deploy.md     部署教程
 ```
 
