@@ -179,6 +179,27 @@ describe('plugin wiring', () => {
     assert.equal(agent.followed.length, 0, '子代理是她的工具，不是她本人')
   })
 
+  // 这条是"你正在说话时时钟不要插进来"的唯一保障：任何会话事件都算有动静。
+  it('any session event refreshes activity, so a conversation is never interrupted', (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'Date'], now: 0 })
+    const { ctx, agent } = mountWith({ intervalMinutes: 5, workspaceRoot: 'C:/work/sinecause' }, 'C:/work/sinecause')
+
+    t.mock.timers.tick(4 * 60_000)                          // 还没到 5 分钟
+    assert.equal(agent.followed.length, 0)
+
+    ctx.listeners.get('session/event')({ id: agent.id })     // 第 4 分钟有动静
+    t.mock.timers.tick(2 * 60_000)                          // 到第 6 分钟，距上次动静只有 2 分钟
+
+    assert.equal(agent.followed.length, 0, '刚有动静就跳，会插进对话中间')
+  })
+
+  it('ignores a session event from a session it does not track', (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'Date'], now: 0 })
+    const { ctx } = mountWith({ intervalMinutes: 5, workspaceRoot: 'C:/work/sinecause' }, 'C:/work/sinecause')
+
+    assert.doesNotThrow(() => ctx.listeners.get('session/event')({ id: 'someone-else' }))
+  })
+
   it('rejects invalid configuration at load', () => {
     assert.throws(() => apply(fakeCtx(), { intervalMinutes: 0 }), /intervalMinutes/)
     assert.throws(() => apply(fakeCtx(), { intervalMinutes: Number.NaN }), /intervalMinutes/)
