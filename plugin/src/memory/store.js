@@ -205,7 +205,14 @@ export class MemoryStore {
     const entries = this.load()
     const index = entries.findIndex(entry => entry.id === id)
     if (index < 0) return null
-    const merged = { ...entries[index], ...(fields ?? {}), id }
+    const patch = { ...(fields ?? {}) }
+    // 正文变了却没给新摘要时必须重算：召回块渲染的是 title：summary，
+    // 留着旧摘要就会显示旧内容；而且 embeddingHash 由 title+summary+keywords
+    // 组成，摘要不动它就一直匹配，旧向量永远不会被判定为过期。
+    if (typeof patch.content === 'string' && patch.summary === undefined) {
+      patch.summary = summarize(patch.content)
+    }
+    const merged = { ...entries[index], ...patch, id }
     merged.updatedAt = Math.trunc(Date.now() / 1000)
     const others = new Set(entries.filter((_, position) => position !== index).map(entry => entry.id))
     entries[index] = normalize(merged, others)

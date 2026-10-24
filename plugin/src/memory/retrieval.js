@@ -220,7 +220,9 @@ export function likelySameSubject(left, right, score, options = {}) {
  */
 export function sameSubjectEntries(entries, target, options = {}) {
   const scored = similarEntries(entries, target, {
-    limit: 12,
+    // 先取全部候选再过滤：`similarEntries` 会先按分数截断，若在这里限 12 条，
+    // 库里条目一多，真正同类的那条只要原始分数排在 12 名之后就会被丢掉。
+    limit: entries.length,
     similarity: options.similarity,
     threshold: () => 0,
   })

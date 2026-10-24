@@ -90,6 +90,22 @@ describe('memory store', () => {
     assert.equal(store.remove(row.id), false)
   })
 
+  it('recomputes the summary when only the content changes', () => {
+    const store = new MemoryStore(join(root, 'summary', 'memory.json'))
+    const row = store.add({ kind: 'fact', title: '模型', content: '他用 v1', keywords: ['模型'] })
+    const updated = store.update(row.id, { content: '他换到 v2 了，之前那条已经不对' })
+    assert.equal(updated.summary, '他换到 v2 了，之前那条已经不对')
+    // 摘要变了 → 指纹跟着变 → 旧向量会被判定过期并重算。
+    assert.notEqual(updated.embeddingHash, embeddingHash(row))
+  })
+
+  it('keeps an explicitly supplied summary', () => {
+    const store = new MemoryStore(join(root, 'summary2', 'memory.json'))
+    const row = store.add({ kind: 'fact', title: 't', content: '长内容' })
+    const updated = store.update(row.id, { content: '新内容', summary: '我自己写的摘要' })
+    assert.equal(updated.summary, '我自己写的摘要')
+  })
+
   it('summarizes at punctuation and falls back to a hard cut', () => {
     assert.equal(summarize('短句。'), '短句。')
     const long = `${'甲'.repeat(50)}。${'乙'.repeat(200)}`
@@ -260,6 +276,25 @@ describe('the "same subject" rule', () => {
       threshold: () => 0.75,
     })
     assert.deepEqual(hits.map(hit => hit.entry.title), ['b'])
+  })
+
+  it('does not drop a real match that ranks low before filtering', () => {
+    // 15 条无关条目拿更高的原始分，真正的同类排在最后。先截断 12 条就会丢掉它。
+    const noise = Array.from({ length: 15 }, (_, index) => normalize({
+      kind: 'skill',
+      title: `noise-${index}`,
+      content: 'z',
+      keywords: [`noise${index}`],
+      position: index,
+    }))
+    const target = normalize({ kind: 'skill', title: 'target', content: 'x', keywords: ['向量'] })
+    const real = normalize({ kind: 'skill', title: 'real', content: 'y', keywords: ['向量'], position: 99 })
+    const hits = sameSubjectEntries([...noise, real], target, {
+      // 噪声分更高但不共用关键词（且低于近似重复线 0.93），真匹配分低却共用关键词。
+      similarity: (left) => (left.title === 'real' ? 0.8 : 0.85),
+      threshold: () => 0.75,
+    })
+    assert.deepEqual(hits.map(hit => hit.entry.title), ['real'])
   })
 })
 
