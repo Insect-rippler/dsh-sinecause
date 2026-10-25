@@ -1,0 +1,38 @@
+name: publish
+
+# 只在推 tag 时发布：v0.1.2 / v0.2.0 …
+# 用 OIDC 可信发布，不存任何 npm token。
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # 这一行是全部魔法的来源：没有它，GitHub 不会签发 OIDC 令牌，
+      # npm CLI 会退回去找 NPM_TOKEN，然后失败。
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      # 可信发布要求 npm CLI >= 11.5.1
+      - name: upgrade npm
+        run: npm install -g npm@latest && npm --version
+
+      # 发布前先跑测试：测试不过就不该有版本出去
+      - name: test
+        working-directory: plugin
+        run: node --test
+
+      - name: publish
+        working-directory: plugin
+        # --provenance 让 registry 记录"这个版本由哪个 commit、哪个 workflow 构建"
+        run: npm publish --provenance --access public
