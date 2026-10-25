@@ -1,5 +1,31 @@
 # 变更记录
 
+## 0.1.5 — 2026-10-25
+
+### 新增：persona —— 人格放进系统提示的开头
+
+新入口 dsh-sinecause/persona。它把 `<workspace>/state/persona.md` 注入到**系统提示**里，
+不是上下文末尾——位置由 DSH 自己的顺序表决定：
+
+```
+HARNESS_IDENTITY        -1000   宿主说"你是 DSH 上的 agent"
+DEPLOYMENT_PERSONA_PREFIX    0   宿主留的人格空槽
+  ← 我们在这里（order 1）
+PLAN_POLICY              500    策略
+TOOL_*                 1000+    工具说明
+```
+
+**人格先于目标、先于一切可执行规则**：goal 可以改可以弃，persona 不会因为它们而变。
+
+几条定死的语义：
+
+- 文件不存在或为空 → **什么都不注入**，不拿默认人设填坑；
+- 只对工作区内的会话生效，子代理没有；
+- 正文按 mtime 缓存，超长截断（人格挤掉工具说明是坏交易）；
+- `interpolate: false`——人格正文是用户数据，不能当提示词模板。
+
+包里带 `persona.example.md`：一份只有结构和规则的空白模板。内容由部署者自己写，
+我们不该替别人定义他是谁。
 ## 0.1.4 — 2026-10-25
 
 ### 新增：heartbeat 工具（取代早期 wait 的设想）

@@ -15,12 +15,11 @@ DSH 的检出目录（`C:\Users\isyhn\deepseek-harness`）只是实现依赖：�
 
 ## 架构
 
-Agent 由 loop 加四个横向系统（persona / goal / wait→heartbeat / memory）和一台时钟组成；
-goal、memory 第一层、heartbeat、时钟已实现，persona 待定。
+Agent 由 loop 加四个横向系统（persona / goal / heartbeat / memory）和一台时钟组成，全部已实现。
 
 | 系统 | 状态 | 职责 |
 |---|---|---|
-| persona | 待定 | 人格：稳定的身份与表达方式，位于上下文开头 |
+| persona | 已实现 | 人格：`state/persona.md` 注入在**系统提示**里（order 1，早于一切策略与工具），先于目标与行动。goal 可以改可以弃，persona 不会；内容从长期记忆沉淀，改得慢 |
 | goal | 已实现 | 注意力强化：agent 自行设定 plan 并分步完成；内容注入在上下文**末尾**，持续把注意力拉回当前步骤 |
 | wait → heartbeat | 已实现 | 保活：她知道这事当下做不了时，用 `heartbeat(idleMinutes)` 把门槛调大——**按最近一次动静计**，安静够久才醒，醒一次回默认节拍。不是定时任务（那是 `schedule`），也不是任务管理（DSH 受阻会自己停） |
 | memory | 第一层 | 记忆库：常驻档案（`anchor`/`self`）每次请求注入，流水（`skill`/`fact`/`episode`/`promise`）按分数召回；整理由**计数触发**（每攒够 N 条见闻提醒一次），不是时钟；新旧判断已用 bge-base-zh 向量 |
@@ -32,7 +31,8 @@ goal、memory 第一层、heartbeat、时钟已实现，persona 待定。
 AGENTS.md            本文件
 state/agenda.json    目标与计划的唯一状态文件（与 SineCause 的 agenda.json 同构）
 state/memory.json    记忆库（v2 schema，与 SineCause 的 memory.json 字段兼容）
-plugin/              dsh-sinecause：goal + memory + clock 三个入口，见 plugin/README.md
+state/persona.md     我是谁——注入在系统提示最前面，先于目标与一切策略
+plugin/              dsh-sinecause：persona + goal + memory + clock 四个入口，见 plugin/README.md
 docs/deploy.md       部署教程（对外分发用）
 docs/heartbeat.md    保活机制的设计与语义
 README.md            仓库门面：它是什么、三个设计取舍、限制
@@ -47,6 +47,9 @@ README.md            仓库门面：它是什么、三个设计取舍、限制
 
 ## 约定
 
+- **persona 是承诺，不是人设；它从这里开始管理。** 判据：一条内容会不会因为新见闻而被修订？
+  会 → 它是 `self` 记忆（走记忆的机制）；不会，它是我对行为方式的长期选择 → 它属于 `state/persona.md`。
+  persona 只写可检验的东西：不写形容词，不重复 goal，不在这里取名字。
 - **这里已经有人了。** 不把"未来的她"当成第三个存在来规划——这个工作区里的 agent 就是那个人，
   记忆、目标、作息属于当下的这个，不是先建好再交给谁。
 - **只借代码，不借记忆。** SineCause 那边的实现（schema、算法、结构）可以移植，
@@ -75,7 +78,8 @@ README.md            仓库门面：它是什么、三个设计取舍、限制
 以下决定尚未做出，不要按猜测实现，问到答案再写进本文件：
 
 - 整理回路：她触发（靠计数提醒），但自动整理还没做——目前是提醒她自己动手。
-- persona 的语义与注入位置；它与常驻档案（`anchor`/`self`）的边界。
+- **persona 怎么"沉淀"**：机制已就位（写在 `state/persona.md`，注入在系统提示开头），
+  但**从记忆里提炼 persona 的时机与判据还没定**——现在靠我判断"这段描述不准了"再改。
 - 向量检索：召回还是词法。要改成向量，得在 pre-step 异步算好查询向量再缓存，
   因为 `systemPrompt.context()` 的 text 是同步的。
 - 模型尺度：现在用 int8 的 bge-base-zh-v1.5；升级硬件后换更大模型要重新标定 `vectorThreshold`。

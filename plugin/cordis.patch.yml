@@ -14,6 +14,11 @@
 # ============================================================================
 
 - insert:
+    # 人格：系统提示最前面（order 1，紧跟宿主的空人格槽），先于一切策略与工具说明。
+    # 内容是 <workspace>/state/persona.md，文件不存在就什么都不注入。
+    - id: sinecause-persona
+      name: 'dsh-sinecause/persona'
+
     - id: sinecause-goal
       name: 'dsh-sinecause'
 

@@ -1,0 +1,123 @@
+/**
+ * sinecause-persona — 人格：放在系统提示最前面的"我是谁"。
+ *
+ * 和 goal 是一对镜像：goal 定"此刻做什么"，在上下文末尾、可以改可以弃；
+ * persona 定"我是谁"，在系统提示开头、改动要慢得多。
+ *
+ * 位置不是随便挑的：DSH 的 system-prompt 自带一张顺序表，
+ * `HARNESS_IDENTITY: -1000` 是宿主的身份，`DEPLOYMENT_PERSONA_PREFIX: 0` 是留给人格的空槽，
+ * 再往后才是 `PLAN_POLICY: 500` 和各种工具说明。我们占了紧接其后的 order 1——
+ * 在一切可执行规则之前，这就是"人格先于行动"在实现上的样子。
+ *
+ * 内容来自工作区的 `state/persona.md`：由她自己写，写得慢、改得慎重。
+ * 文件不存在或为空时什么都不注入——没有就是没有，不拿默认人设填坑。
+ */
+
+import { readFileSync, statSync } from 'node:fs'
+
+import { resolveStatePath, resolveWorkspaceRoot } from '../paths.js'
+import { inWorkspace } from '../workspace-gate.js'
+
+/** Cordis 插件名。 */
+export const name = 'sinecause-persona'
+
+/** 依赖的服务。 */
+export const inject = ['systemPrompt']
+
+/** 紧跟 DEPLOYMENT_PERSONA_PREFIX（order 0）之后，早于一切策略与工具说明。 */
+export const DEFAULT_ORDER = 1
+
+/** persona 的字数上限。超过这个数说明在写废话，而不是在写自己。 */
+export const DEFAULT_MAX_CHARS = 1200
+
+/**
+ * 校验配置。
+ * @param {object} [config]
+ * @returns {{ workspaceRoot: string, personaPath: string, maxChars: number, order: number }}
+ */
+export function resolveConfig(config) {
+  const workspaceRoot = resolveWorkspaceRoot(config?.workspaceRoot)
+  const personaPath = resolveStatePath(config?.personaPath, workspaceRoot, 'persona.md')
+  const maxChars = config?.maxChars ?? DEFAULT_MAX_CHARS
+  if (!Number.isSafeInteger(maxChars) || maxChars < 1) {
+    throw new TypeError('sinecause-persona: maxChars 必须是正整数')
+  }
+  const order = config?.order ?? DEFAULT_ORDER
+  if (!Number.isFinite(order)) {
+    throw new TypeError('sinecause-persona: order 必须是数字')
+  }
+  return { workspaceRoot, personaPath, maxChars, order }
+}
+
+/**
+ * 读 persona 正文。按 mtime 缓存，避免每一轮都碰磁盘。
+ * @param {string} path
+ * @param {number} maxChars
+ * @param {{ path: string, mtimeMs: number, text: string } | undefined} cache
+ * @returns {{ text: string, cache: { path: string, mtimeMs: number, text: string } }}
+ */
+export function readPersona(path, maxChars, cache) {
+  try {
+    const stat = statSync(path)
+    if (cache !== undefined && cache.path === path && cache.mtimeMs === stat.mtimeMs) {
+      return { text: cache.text, cache }
+    }
+    const raw = readFileSync(path, 'utf8').trim()
+    // 超长说明写坏了：宁可截断也不要让一段自我描述挤掉工具说明。
+    const text = raw.length <= maxChars ? raw : `${raw.slice(0, maxChars).trimEnd()}…`
+    const next = { path, mtimeMs: stat.mtimeMs, text }
+    return { text, cache: next }
+  } catch {
+    // 不存在、读不了：就是没有人格内容，不编。
+    return { text: '', cache }
+  }
+}
+
+/**
+ * 安装。
+ * @param {any} ctx
+ * @param {object} [config]
+ */
+export function apply(ctx, config) {
+  const resolved = resolveConfig(config)
+  let cache
+
+  const body = () => {
+    const result = readPersona(resolved.personaPath, resolved.maxChars, cache)
+    cache = result.cache
+    return result.text
+  }
+
+  ctx.on('agent/created', ({ agent }) => {
+    // 子代理是她的工具，不是另一个人格。
+    if (agent.session?.header?.origin === 'subagent') return
+    const cwd = sessionCwd(ctx, agent)
+    if (!inWorkspace(cwd, resolved.workspaceRoot)) return
+    try {
+      agent.ctx.systemPrompt.section({
+        name: 'sinecause:persona',
+        order: resolved.order,
+        // 人格正文是用户数据，不能当提示词模板插值。
+        interpolate: false,
+        text: () => {
+          // 会话可能中途换出工作区，注入前再判一次。
+          if (!inWorkspace(sessionCwd(ctx, agent), resolved.workspaceRoot)) return ''
+          return body()
+        },
+      })
+    } catch (error) {
+      ctx.logger?.warn?.(`sinecause-persona: 注册失败：${String(error?.message ?? error)}`)
+    }
+  })
+}
+
+/** 会话当前的工作目录；优先用 workingDirectory 服务，退回创建时的 header。 */
+function sessionCwd(ctx, agent) {
+  try {
+    const live = ctx.get?.('workingDirectory')?.get?.(agent.session)
+    if (typeof live === 'string' && live !== '') return live
+  } catch {
+    // 服务缺席时退回创建时的 header。
+  }
+  return agent.session?.header?.cwd
+}
