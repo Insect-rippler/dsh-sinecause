@@ -16,7 +16,7 @@
 import { readFileSync, statSync } from 'node:fs'
 
 import { resolveStatePath, resolveWorkspaceRoot } from '../paths.js'
-import { TAIL_ORDERS, registerTailBlock } from '../tail.js'
+import { PLACEMENT, TAIL_ORDERS, registerTailBlock } from '../tail.js'
 import { inWorkspace } from '../workspace-gate.js'
 
 /** Cordis 插件名。 */
@@ -140,6 +140,8 @@ export function apply(ctx, config) {
         registerTailBlock(agent, {
           name: 'sinecause:persona-echo',
           order: TAIL_ORDERS.stance,
+          // 和记忆一起插在本轮 user 消息之前；立场排在记忆之内、最贴近这一轮的请求。
+          placement: PLACEMENT.beforeUser,
           text: () => {
             const text = live()
             return text === '' ? '' : `## 立场\n\n${text}`

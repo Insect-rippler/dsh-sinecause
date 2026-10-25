@@ -13,7 +13,7 @@ import { GROWTH_KINDS, KINDS, MemoryStore, RESIDENT_KINDS, STATUSES, summarize }
 import { renderMemoryBlock, retrieve, sameSubjectEntries, similarity } from './retrieval.js'
 import { backfillEmbeddings, createEmbedder, embeddingFields, entrySimilarity } from './embedding.js'
 import { resolveStatePath, resolveWorkspaceRoot } from '../paths.js'
-import { TAIL_ORDERS, registerTailBlock } from '../tail.js'
+import { PLACEMENT, TAIL_ORDERS, registerTailBlock } from '../tail.js'
 import { inWorkspace } from '../workspace-gate.js'
 
 /** Cordis 插件名。 */
@@ -236,6 +236,8 @@ function registerForAgent(agent, resolved) {
   registerTailBlock(agent, {
     name: 'sinecause:memory',
     order: TAIL_ORDERS.memory,
+    // 和立场一起放在本轮 user 消息之前。
+    placement: PLACEMENT.beforeUser,
     text: () => {
       if (!inWorkspace(sessionCwd(ctx, agent), resolved.workspaceRoot)) return ''
       return contextText()
