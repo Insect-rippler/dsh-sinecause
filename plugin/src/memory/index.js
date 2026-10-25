@@ -13,7 +13,7 @@ import { GROWTH_KINDS, KINDS, MemoryStore, RESIDENT_KINDS, STATUSES, summarize }
 import { renderMemoryBlock, retrieve, sameSubjectEntries, similarity } from './retrieval.js'
 import { backfillEmbeddings, createEmbedder, embeddingFields, entrySimilarity } from './embedding.js'
 import { resolveStatePath, resolveWorkspaceRoot } from '../paths.js'
-import { PLACEMENT, TAIL_ORDERS, installTailChannel, registerTailBlock } from '../tail.js'
+import { installTailChannel, registerContextBlock } from '../tail.js'
 import { inWorkspace } from '../workspace-gate.js'
 
 /** Cordis 插件名。 */
@@ -28,7 +28,7 @@ export const ACTIONS = [
 ]
 
 /** 记忆块在 runtime context 里的排序位：早于 goal 的 300，晚于内建的 210。 */
-const CONTEXT_ORDER = 250
+const CONTEXT_ORDER = 240
 
 const DESCRIPTION = '她自己的长期记忆：写进来、按需查回去、攒够了就整理。'
   + 'add 记一条（kind：anchor 长期设定 / self 她自己的边界与判断 / skill 学到的框架与路子 / fact 事实 / episode 一段经历 / promise 许下的承诺）；'
@@ -232,12 +232,11 @@ function registerForAgent(agent, resolved) {
     }
   }
 
-  // 请求时组装，不落库：记忆每轮都要重新算，旧的快照留在历史里只会冒充"当前"。
-  registerTailBlock(agent, {
+  // 请求时组装：走 runtime-context 快照（同名替换，不累积）。
+  // 记忆在前、立场在后（立场最贴近本轮触发）。
+  registerContextBlock(agent, {
     name: 'sinecause:memory',
-    order: TAIL_ORDERS.memory,
-    // 和立场一起放在本轮 user 消息之前。
-    placement: PLACEMENT.beforeUser,
+    order: CONTEXT_ORDER,
     text: () => {
       if (!inWorkspace(sessionCwd(ctx, agent), resolved.workspaceRoot)) return ''
       return contextText()

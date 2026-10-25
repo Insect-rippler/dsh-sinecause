@@ -16,7 +16,7 @@
 import { Agenda, MAX_ACTIVE, normalizeAt } from './agenda.js'
 import { resolveStatePath, resolveWorkspaceRoot } from './paths.js'
 import { renderAgendaBlock } from './render.js'
-import { TAIL_ORDERS, installTailChannel, registerTailBlock } from './tail.js'
+import { installTailChannel, registerContextBlock } from './tail.js'
 import { inWorkspace } from './workspace-gate.js'
 
 export { inWorkspace } from './workspace-gate.js'
@@ -31,7 +31,7 @@ export const inject = ['tools', 'systemPrompt', 'llm']
 export const ACTIONS = ['create', 'list', 'done', 'block', 'add', 'timer', 'finish', 'abandon']
 
 /** 尾部快照在 runtime context 里的排序位；晚于所有内建 context（最高 210）。 */
-const CONTEXT_ORDER = 300
+const CONTEXT_ORDER = 260
 
 const DESCRIPTION = '管理你自己的目标与计划（可并行多个 plan）。'
   + 'create 新建 plan；list 看全部；done/block/add 推进步骤；timer 设定时点；finish/abandon 收尾。'
@@ -147,11 +147,12 @@ function registerForAgent(agent, resolved) {
     }
   }
 
-  // 请求时组装：不落进 session。DSH 的 context() 会 materialize 成 durable 快照，
-  // 那等于把"当前目标"一遍遍写进历史，旧的那份还会假装是当前。
-  registerTailBlock(agent, {
+  // 请求时组装：走 runtime-context 快照（同名替换，不累积）。
+  // 目标排在记忆、立场之后：DSH 没有"跟在唤醒消息之后"的写入口，
+  // 所以让它停在快照末尾——离本轮触发只剩一条消息。
+  registerContextBlock(agent, {
     name: 'sinecause:goal',
-    order: TAIL_ORDERS.goal,
+    order: CONTEXT_ORDER,
     text: () => {
       if (!inWorkspace(sessionCwd(ctx, agent), resolved.workspaceRoot)) return ''
       return render()

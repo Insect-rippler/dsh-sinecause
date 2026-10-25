@@ -180,6 +180,27 @@ export function registerTailBlock(agent, block) {
 }
 
 /**
+ * 给一个会话挂一块 runtime-context 内容（拼在请求里的快照，紧贴本轮触发）。
+ *
+ * 为什么不是 `llm/stream`：那份 options 是 deepFreeze 过的只读请求，改不动。
+ * runtime-context 快照是宿主唯一「每轮重建」的写入口：同名 context 会被上一条的
+ * 替换（不是追加），所以不会在历史里越积越多。
+ *
+ * 宿主没有 systemPrompt 服务时（单测里的假 ctx）退回 `llm/stream` 那条路。
+ *
+ * @param {object} agent
+ * @param {{ name: string, order: number, text: () => string }} block
+ * @returns {() => void} 注销
+ */
+export function registerContextBlock(agent, block) {
+  const prompt = agent.ctx?.systemPrompt
+  if (typeof prompt?.context === 'function') {
+    return prompt.context({ name: block.name, order: block.order, text: () => block.text() })
+  }
+  return registerTailBlock(agent, { name: block.name, order: block.order, text: block.text })
+}
+
+/**
  * 给一个会话挂"人格正文"（拼在请求里第一条 system 消息的最前面）。
  * @param {object} agent
  * @param {() => string} render

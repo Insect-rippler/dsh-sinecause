@@ -16,7 +16,7 @@
 import { readFileSync, statSync } from 'node:fs'
 
 import { resolveStatePath, resolveWorkspaceRoot } from '../paths.js'
-import { PLACEMENT, TAIL_ORDERS, installTailChannel, registerRequestPrefix, registerTailBlock } from '../tail.js'
+import { installTailChannel, registerContextBlock, registerRequestPrefix } from '../tail.js'
 import { inWorkspace } from '../workspace-gate.js'
 
 /** Cordis 插件名。 */
@@ -46,7 +46,7 @@ export const DEFAULT_MAX_CHARS = 1200
  * 开头和结尾是最能牵引注意力的两个位置，**同一件事在两处各说一次是必要的**——
  * 对人格尤其如此：它优先于一切，最不能掉。
  */
-export const DEFAULT_ECHO_ORDER = 240
+export const DEFAULT_ECHO_ORDER = 250
 
 /**
  * 校验配置。
@@ -138,14 +138,11 @@ export function apply(ctx, config) {
     installPersonaSection(agent, live, resolved.order)
 
       // 尾部的同一份，换个标题：它不是重复，是注意力锚点。
-      // 走"请求时组装"而不是 context()——后者会被写成 durable 快照塞进历史，
-      // 每变一次多一份，旧的那份还会假装是当前。
+      // 走 runtime-context 快照（同名替换，不累积）；order 大于记忆，所以它更贴近本轮触发。
       if (resolved.echo) {
-        registerTailBlock(agent, {
+        registerContextBlock(agent, {
           name: 'sinecause:persona-echo',
-          order: TAIL_ORDERS.stance,
-          // 和记忆一起插在本轮 user 消息之前；立场排在记忆之内、最贴近这一轮的请求。
-          placement: PLACEMENT.beforeUser,
+          order: resolved.echoOrder,
           text: () => {
             const text = live()
             return text === '' ? '' : `## 立场\n\n${text}`
