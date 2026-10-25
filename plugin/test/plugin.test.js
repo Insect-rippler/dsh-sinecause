@@ -34,22 +34,16 @@ function fakeAgent(cwd) {
     session: { header: { cwd } },
     ctx: {
       tools: { register: definition => { tools.push(definition); return () => {} } },
-      // 目标现在走"请求时组装"，不再落 context。这里模拟瀑布：
-      // 同步跑一遍钩子，把产出的 section 包成旧断言的形状，
-      // text 每次重新求值，所以断言时看到的是当下状态。
+      // 目标现在挂在"请求末尾"：模拟 llm/stream，跑一遍钩子，把追加的那条消息取出来。
       on(event, handler) {
-        if (event !== 'system-prompt/assemble') return () => {}
+        if (event !== 'llm/stream') return () => {}
         const run = () => {
-          const assembly = { sections: [], contexts: [], tools: [], variables: {} }
-          handler(assembly, { agent }, () => assembly)
-          return assembly.sections[0]
+          const options = { sessionId: agent.id, messages: [] }
+          handler(options, () => options)
+          const last = options.messages[options.messages.length - 1]
+          return last === undefined ? '' : last.content.map(part => part.text).join('\n')
         }
-        contexts.push({
-          get name() { return run()?.name ?? '' },
-          get order() { return run()?.order ?? 0 },
-          interpolate: false,
-          text: () => run()?.text ?? '',
-        })
+        contexts.push({ text: () => run() })
         return () => {}
       },
     },
@@ -88,12 +82,12 @@ describe('plugin wiring', () => {
     assert.deepEqual(inject, ['tools', 'systemPrompt'])
   })
 
-  it('registers one plan tool and one tail context per eligible agent', () => {
+  it('registers one plan tool and one request-tail hook per eligible agent', () => {
     const agent = mount({ statePath }, workspace)
     assert.deepEqual(agent.registered.map(tool => tool.name), ['plan'])
-    assert.deepEqual(agent.contexts.map(contribution => contribution.name), ['sinecause:goal'])
-    assert.equal(agent.contexts[0].interpolate, false)
-    assert.ok(agent.contexts[0].order > 210, '尾部 context 要排在所有内建 context 之后')
+    // 请求末尾：钩子挂上了，跑一次能拿到目标正文（空计划时是"当前没有目标"）。
+    assert.equal(agent.contexts.length, 1)
+    assert.match(agent.contexts[0].text(), /目标与计划|当前没有目标/)
     assert.deepEqual(agent.registered[0].parameters.properties.action.enum, ACTIONS)
   })
 

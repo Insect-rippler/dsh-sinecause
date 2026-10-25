@@ -31,20 +31,16 @@ function fakeAgent(cwd) {
     session: { header: { cwd } },
     ctx: {
       tools: { register: definition => { tools.push(definition); return () => {} } },
-      // 记忆现在走"请求时组装"：同步模拟瀑布，产出包成旧断言的形状。
+      // 记忆挂在"请求末尾"：模拟 llm/stream，跑一遍钩子，把追加的那条消息取出来。
       on(event, handler) {
-        if (event !== 'system-prompt/assemble') return () => {}
+        if (event !== 'llm/stream') return () => {}
         const run = () => {
-          const assembly = { sections: [], contexts: [], tools: [], variables: {} }
-          handler(assembly, { agent }, () => assembly)
-          return assembly.sections[0]
+          const options = { sessionId: agent.id, messages: [] }
+          handler(options, () => options)
+          const last = options.messages[options.messages.length - 1]
+          return last === undefined ? '' : last.content.map(part => part.text).join('\n')
         }
-        contexts.push({
-          get name() { return run()?.name ?? '' },
-          get order() { return run()?.order ?? 0 },
-          interpolate: false,
-          text: () => run()?.text ?? '',
-        })
+        contexts.push({ text: () => run() })
         return () => {}
       },
     },

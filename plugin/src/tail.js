@@ -1,48 +1,74 @@
 /**
- * 把一块内容拼成"请求时组装"的段落，而不是落进 session 的快照。
+ * 把一块内容挂在**请求的最末尾**——不是系统提示里，也不进 session 历史。
  *
- * 区别在这里：
- * - `systemPrompt.context()` 会被 DSH materialize 成 **durable user-role snapshot**，
- *   也就是真的写进会话历史。它是"同一份内容每变一次就多一份"的，越聊越长，
- *   而且旧快照会一直躺在历史里假装是"当前"。
- * - `system-prompt/assemble` 是每次构建请求时的瀑布钩子：往里加的 section 只存在于
- *   这一次请求里，不落库，每轮重新算。
+ * 为什么不用另外两条路：
+ * - `systemPrompt.context()`：DSH 会把它 materialize 成 durable user-role snapshot，
+ *   真的写进会话。同一份内容每变一次多一份，旧的那份还会在历史里假装是"当前"。
+ * - `system-prompt/assemble`：不落库，但它拼在**系统提示**末尾；系统提示和对话之间
+ *   还隔着整段 session 历史，离"此刻"并不近。
  *
- * 所以人格、记忆、目标这类"每次都要新鲜"的东西走这里；persona 本体则用 section()
- * 注册在系统提示最前面（那是注册式的，本来就不落库）。
+ * `llm/stream` 是请求已经拼好、正要交给适配器的那一刻：在这里往 `options.messages`
+ * 末尾追加一条，模型看到的就是"历史之后、回答之前"的最后一段。它只存在于这次请求里，
+ * 不进 session，也不影响下一步（每一步都会重新组装）。
+ *
+ * 三块内容按 order 合成**一条**消息，而不是各发一条：连着三条 user 消息对模型是噪声。
  */
 
-/**
- * 给一个会话挂一块请求时内容。
- *
- * @param {object} agent - DSH 的 Agent（用到它的 id 和 ctx）。
- * @param {{ name: string, order: number, text: () => string }} block
- *   `text` 在每次组装时调用，返回空串就表示这一轮不贡献内容。
- * @returns {() => void} 注销函数。
- */
-export function registerTailBlock(agent, block) {
-  const ctx = agent.ctx
-  const id = String(agent.id)
-  const append = assembled => {
-    // 只影响自己这一份组装：别的会话不用看见这个工作区的东西。
-    if (assembled === undefined || assembled === null) return assembled
-    const text = block.text()
-    if (text === '') return assembled
-    assembled.sections.push({ name: block.name, order: block.order, text })
-    return assembled
-  }
-  return ctx.on('system-prompt/assemble', (assembly, context, next) => {
-    const owner = context?.agent
-    if (owner === undefined || String(owner.id) !== id) return next()
-    const after = next()
-    // 真实宿主返回 Promise；测试里 next() 是同步的，两种都走得通。
-    return after !== null && typeof after?.then === 'function' ? after.then(append) : append(after)
-  })
-}
+/** 每个 Agent 挂了哪些块、是否已经装过监听。 */
+const blocks = new WeakMap()
+const installed = new WeakSet()
 
-/** 这些块排在系统提示的最后，紧贴对话——离"此刻"最近的位置。 */
+/** 这些块按 order 拼在最后，越小的越靠前。 */
 export const TAIL_ORDERS = {
   stance: 5000,
   memory: 5010,
   goal: 5020,
+}
+
+/** 拼成一条消息里的文字；全空就返回空串（这一轮什么都不加）。 */
+function renderAll(list) {
+  return [...list]
+    .sort((left, right) => left.order - right.order)
+    .map(block => block.text())
+    .filter(text => text !== '')
+    .join('\n\n')
+}
+
+/**
+ * 给一个会话挂一块"请求末尾"内容。
+ * @param {object} agent - DSH 的 Agent（用到 id 和 ctx）。
+ * @param {{ name: string, order: number, text: () => string }} block
+ * @returns {() => void} 注销函数（移除这一块）。
+ */
+export function registerTailBlock(agent, block) {
+  const list = blocks.get(agent) ?? []
+  list.push(block)
+  blocks.set(agent, list)
+
+  if (!installed.has(agent)) {
+    installed.add(agent)
+    const id = String(agent.id)
+    agent.ctx.on('llm/stream', (options, next) => {
+      try {
+        // 只动自己这个会话的请求。
+        if (String(options?.sessionId) !== id) return next()
+        const text = renderAll(blocks.get(agent) ?? [])
+        if (text !== '') {
+          options.messages = [
+            ...(options.messages ?? []),
+            { role: 'user', content: [{ type: 'text', text }] },
+          ]
+        }
+      } catch {
+        // 拼装失败也不该让请求发不出去。
+      }
+      return next()
+    })
+  }
+
+  return () => {
+    const current = blocks.get(agent) ?? []
+    const index = current.indexOf(block)
+    if (index >= 0) current.splice(index, 1)
+  }
 }

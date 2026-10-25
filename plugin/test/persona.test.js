@@ -49,20 +49,16 @@ function fakeAgent(cwd, origin) {
         })
         return { dispose: async () => {} }
       },
-      // 尾部回声走"请求时组装"：同步模拟瀑布，产出包成旧断言的形状。
+      // 立场回声挂在"请求末尾"：模拟 llm/stream，跑一遍钩子，把追加的那条消息取出来。
       on(event, handler) {
-        if (event !== 'system-prompt/assemble') return () => {}
+        if (event !== 'llm/stream') return () => {}
         const run = () => {
-          const assembly = { sections: [], contexts: [], tools: [], variables: {} }
-          handler(assembly, { agent }, () => assembly)
-          return assembly.sections[0]
+          const options = { sessionId: agent.id, messages: [] }
+          handler(options, () => options)
+          const last = options.messages[options.messages.length - 1]
+          return last === undefined ? '' : last.content.map(part => part.text).join('\n')
         }
-        contexts.push({
-          get name() { return run()?.name ?? '' },
-          get order() { return run()?.order ?? 0 },
-          interpolate: false,
-          text: () => run()?.text ?? '',
-        })
+        contexts.push({ text: () => run() })
         return () => {}
       },
     },
@@ -140,12 +136,10 @@ describe('plugin wiring', () => {
   })
 
   // 系统提示的注意力会随上下文变长衰减：头尾两处各说一次是必要的冗余。
-  it('echoes the same text as a request-time stance anchor', () => {
+  it('echoes the same text at the very end of the request', () => {
     const { agent } = mount({ workspaceRoot: workspace, personaPath: tempPersona('我是谁') }, workspace)
     assert.equal(agent.contexts.length, 1)
     const [echo] = agent.contexts
-    assert.equal(echo.name, 'sinecause:persona-echo')
-    assert.ok(echo.order > 1000, '排在所有内建段落和工具说明之后，紧贴对话')
     assert.match(echo.text(), /^## 立场/)
     assert.match(echo.text(), /我是谁/)
   })
