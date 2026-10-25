@@ -24,6 +24,12 @@ const DEFAULT_MIN_SCORE = 2
  */
 export const EXPIRED_FACTOR = 0.5
 
+/**
+ * 标题与查询的双字重合低于这个比例就不算证据。
+ * 实测定这个数：共用一个虚词（"什么""怎么"）时重合约 0.16，真正的相关在 0.6 以上。
+ */
+export const TITLE_OVERLAP_FLOOR = 0.25
+
 /** 拼出用于相似度比较的文字。 */
 function comparableText(entry) {
   return [entry.title, entry.summary, ...(entry.keywords ?? [])].filter(Boolean).join(' ')
@@ -133,7 +139,11 @@ function titleOverlap(entry, query) {
   if (signal.size === 0 || asked.size === 0) return 0
   let hit = 0
   for (const gram of asked) if (signal.has(gram)) hit += 1
-  return hit / Math.min(asked.size, signal.size)
+  // 分母是提问的双字数：问的是"这条答上了问题里的多少"。
+  // 用 min() 会让超短标题（比如只有 "profile"）拿满分，反而盖过真正贴合的长标题。
+  const overlap = hit / asked.size
+  // 一个共同的双字往往只是虚词（"什么""怎么"），不足以说明讲的是同一件事。
+  return overlap >= TITLE_OVERLAP_FLOOR ? overlap : 0
 }
 
 /** 时效：90 天内线性衰减到 0。 */
@@ -146,7 +156,12 @@ function recencyScore(entry, now) {
 
 /** 一条记忆的总分。向量实现之后在这里加 `6.0 * similarity`。 */
 export function scoreOf(entry, query, now = Date.now()) {
-  const base = 2 * lexicalScore(entry, query)
+  const lexical = lexicalScore(entry, query)
+  // 没有任何词法证据就不召回：新鲜度和重要度是用来“在这批相关条目里排序”的，
+  // 不该让一条与提问无关的记忆仅凭“比较新、比较重要”就挤进上下文。
+  // 实测过：允许零相关过门槛时，10 条库上每一条都拿 1.00 的地板分，门槛失去意义。
+  if (lexical <= 0) return 0
+  const base = 2 * lexical
     + recencyScore(entry, now)
     + Math.max(0, Number(entry.important ?? 0)) / 1000
     + (entry.kind === 'promise' ? 1.5 : 0)
