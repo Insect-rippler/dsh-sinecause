@@ -2,7 +2,7 @@
  * dsh-sinecause — 目标与计划的尾部注入 + `plan` 工具。
  *
  * 两个挂点，都注册在该 Agent 自己的 scope 里（`agent.ctx`）：
- *   1. `systemPrompt.context()` —— 把 agenda 渲染进 loop 的 runtime-context 快照。
+ *   1. `system-prompt/assemble` —— 每次请求时把 agenda 拼进系统提示末尾，不落库。
  *      快照是请求的**最后一条** user message，内容不变就不重发，变了就替换旧快照。
  *      这是"引导注意力"的落点：不占开头，只贴着本轮任务。
  *   2. `tools.register()` —— 一个 action 形式的 `plan` 工具，读写同一个 agenda.json。
@@ -16,6 +16,7 @@
 import { Agenda, MAX_ACTIVE, normalizeAt } from './agenda.js'
 import { resolveStatePath, resolveWorkspaceRoot } from './paths.js'
 import { renderAgendaBlock } from './render.js'
+import { TAIL_ORDERS, registerTailBlock } from './tail.js'
 import { inWorkspace } from './workspace-gate.js'
 
 export { inWorkspace } from './workspace-gate.js'
@@ -146,14 +147,13 @@ function registerForAgent(agent, resolved) {
     }
   }
 
-  ctx.systemPrompt.context({
-    name: 'goal:agenda',
-    order: CONTEXT_ORDER,
-    // 计划正文是用户数据，不能当提示词模板插值。
-    interpolate: false,
-    text: (context) => {
-      const owner = context?.agent ?? agent
-      if (!inWorkspace(sessionCwd(ctx, owner), resolved.workspaceRoot)) return ''
+  // 请求时组装：不落进 session。DSH 的 context() 会 materialize 成 durable 快照，
+  // 那等于把"当前目标"一遍遍写进历史，旧的那份还会假装是当前。
+  registerTailBlock(agent, {
+    name: 'sinecause:goal',
+    order: TAIL_ORDERS.goal,
+    text: () => {
+      if (!inWorkspace(sessionCwd(ctx, agent), resolved.workspaceRoot)) return ''
       return render()
     },
   })

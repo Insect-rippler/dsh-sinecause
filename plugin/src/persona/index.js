@@ -16,6 +16,7 @@
 import { readFileSync, statSync } from 'node:fs'
 
 import { resolveStatePath, resolveWorkspaceRoot } from '../paths.js'
+import { TAIL_ORDERS, registerTailBlock } from '../tail.js'
 import { inWorkspace } from '../workspace-gate.js'
 
 /** Cordis 插件名。 */
@@ -130,19 +131,21 @@ export function apply(ctx, config) {
           interpolate: false,
           text: live,
         })
+      })
 
-        // 尾部的同一份，换个标题：它不是重复，是注意力锚点。
-        if (!resolved.echo) return
-        scope.systemPrompt.context({
+      // 尾部的同一份，换个标题：它不是重复，是注意力锚点。
+      // 走"请求时组装"而不是 context()——后者会被写成 durable 快照塞进历史，
+      // 每变一次多一份，旧的那份还会假装是当前。
+      if (resolved.echo) {
+        registerTailBlock(agent, {
           name: 'sinecause:persona-echo',
-          order: resolved.echoOrder,
-          interpolate: false,
+          order: TAIL_ORDERS.stance,
           text: () => {
             const text = live()
             return text === '' ? '' : `## 立场\n\n${text}`
           },
         })
-      })
+      }
     } catch (error) {
       ctx.logger?.warn?.(`sinecause-persona: 注册失败：${String(error?.message ?? error)}`)
     }

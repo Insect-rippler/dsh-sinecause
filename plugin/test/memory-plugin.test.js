@@ -26,15 +26,32 @@ function fakeCtx() {
 function fakeAgent(cwd) {
   const tools = []
   const contexts = []
-  return {
+  const agent = {
+    id: `session-${cwd}`,
     session: { header: { cwd } },
     ctx: {
       tools: { register: definition => { tools.push(definition); return () => {} } },
-      systemPrompt: { context: contribution => { contexts.push(contribution); return () => {} } },
+      // 记忆现在走"请求时组装"：同步模拟瀑布，产出包成旧断言的形状。
+      on(event, handler) {
+        if (event !== 'system-prompt/assemble') return () => {}
+        const run = () => {
+          const assembly = { sections: [], contexts: [], tools: [], variables: {} }
+          handler(assembly, { agent }, () => assembly)
+          return assembly.sections[0]
+        }
+        contexts.push({
+          get name() { return run()?.name ?? '' },
+          get order() { return run()?.order ?? 0 },
+          interpolate: false,
+          text: () => run()?.text ?? '',
+        })
+        return () => {}
+      },
     },
     registered: tools,
     contexts,
   }
+  return agent
 }
 
 /** 跑一次 apply，并让给定 cwd 的 Agent 被创建。默认关掉向量、工作区设成该 cwd。 */
@@ -69,9 +86,9 @@ describe('memory plugin wiring', () => {
   it('registers one memory tool and one context, ordered before goal', () => {
     const agent = mount({ statePath }, workspace)
     assert.deepEqual(agent.registered.map(tool => tool.name), ['memory'])
-    assert.deepEqual(agent.contexts.map(contribution => contribution.name), ['sinecause:memory'])
-    assert.equal(agent.contexts[0].interpolate, false)
-    assert.ok(agent.contexts[0].order > 210 && agent.contexts[0].order < 300)
+    // 请求时组装：内容为空时不产出 section，所以只断言钩子挂上了。
+    // 顺序由 goal 那条测试覆盖（那边有内容，能看到 order）。
+    assert.equal(agent.contexts.length, 1)
     assert.deepEqual(agent.registered[0].parameters.properties.action.enum, ACTIONS)
   })
 

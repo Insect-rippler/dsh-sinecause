@@ -13,6 +13,7 @@ import { GROWTH_KINDS, KINDS, MemoryStore, RESIDENT_KINDS, STATUSES, summarize }
 import { renderMemoryBlock, retrieve, sameSubjectEntries, similarity } from './retrieval.js'
 import { backfillEmbeddings, createEmbedder, embeddingFields, entrySimilarity } from './embedding.js'
 import { resolveStatePath, resolveWorkspaceRoot } from '../paths.js'
+import { TAIL_ORDERS, registerTailBlock } from '../tail.js'
 import { inWorkspace } from '../workspace-gate.js'
 
 /** Cordis 插件名。 */
@@ -231,14 +232,12 @@ function registerForAgent(agent, resolved) {
     }
   }
 
-  ctx.systemPrompt.context({
+  // 请求时组装，不落库：记忆每轮都要重新算，旧的快照留在历史里只会冒充"当前"。
+  registerTailBlock(agent, {
     name: 'sinecause:memory',
-    order: CONTEXT_ORDER,
-    // 记忆正文是她自己写的用户数据，不能当提示词模板插值。
-    interpolate: false,
-    text: (context) => {
-      const owner = context?.agent ?? agent
-      if (!inWorkspace(sessionCwd(ctx, owner), resolved.workspaceRoot)) return ''
+    order: TAIL_ORDERS.memory,
+    text: () => {
+      if (!inWorkspace(sessionCwd(ctx, agent), resolved.workspaceRoot)) return ''
       return contextText()
     },
   })

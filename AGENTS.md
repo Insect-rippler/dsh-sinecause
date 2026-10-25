@@ -20,9 +20,9 @@ Agent 由 loop 加四个横向系统（persona / goal / heartbeat / memory）和
 | 系统 | 状态 | 职责 |
 |---|---|---|
 | persona | 已实现 | 人格：`state/persona.md` 注入在**系统提示**里（order 1，早于一切策略与工具），先于目标与行动。goal 可以改可以弃，persona 不会；内容从长期记忆沉淀，改得慢 |
-| goal | 已实现 | 注意力强化：agent 自行设定 plan 并分步完成；内容注入在上下文**末尾**，持续把注意力拉回当前步骤 |
+| goal | 已实现 | 注意力强化：agent 自行设定 plan 并分步完成；**每次请求时**拼进系统提示末尾（不落库），把注意力拉回当前步骤 |
 | wait → heartbeat | 已实现 | 保活：她知道这事当下做不了时，用 `heartbeat(idleMinutes)` 把门槛调大——**按最近一次动静计**，安静够久才醒，醒一次回默认节拍。不是定时任务（那是 `schedule`），也不是任务管理（DSH 受阻会自己停） |
-| memory | 第一层 | 记忆库：常驻档案（`anchor`/`self`）每次请求注入，流水（`skill`/`fact`/`episode`/`promise`）按分数召回；整理由**计数触发**（每攒够 N 条见闻提醒一次），不是时钟；新旧判断已用 bge-base-zh 向量 |
+| memory | 第一层 | 记忆库：常驻档案（`anchor`/`self`）与召回结果**每次请求时组装**（order 5010，不落库），流水（`skill`/`fact`/`episode`/`promise`）按分数召回；整理由**计数触发**（每攒够 N 条见闻提醒一次），不是时钟；新旧判断已用 bge-base-zh 向量 |
 | clock | 已实现 | 连续性：没人在说话时按间隔叫醒她（快速迭代期 10 分钟，稳定后调大）；只叫最近活跃的工作区会话，关机即失去意识、不补算错过的时段 |
 
 ## 目录
@@ -41,8 +41,10 @@ README.md            仓库门面：它是什么、三个设计取舍、限制
 
 两条必须守住的语义：
 
-- **goal 与 persona 是一对镜像。** persona 定"我是谁"，放在开头；goal 定"此刻做什么"，放在末尾。
-  goal 若出现在上下文开头，就退化成普通指令，失去逐轮引导注意力的作用。
+- **goal 与 persona 是一对镜像。** persona 定"我是谁"，放在系统提示最前面；goal 定"此刻做什么"，
+  每次请求时拼在最后。**两者都不进 session**——落库的快照会在历史里假装是"当前"，越聊越多。
+- **注入一律在发送前组装，不写进会话历史。** 用 `system-prompt/assemble` 往系统提示末尾加 section，
+  不要用 `systemPrompt.context()`（它会被 materialize 成 durable user-role snapshot，永久留在历史里）。
 - **heartbeat 不是 sleep，也不是定时任务。** 它按"安静了多久"触发，任何动静都会重新计时；
   定时到点触发的是 `schedule`。早期 `wait` 的语义（强行结束一轮）已作废：模型说完话一轮自然就结束。
 

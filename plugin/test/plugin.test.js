@@ -29,15 +29,34 @@ function fakeCtx() {
 function fakeAgent(cwd) {
   const tools = []
   const contexts = []
-  return {
+  const agent = {
+    id: `session-${cwd}`,
     session: { header: { cwd } },
     ctx: {
       tools: { register: definition => { tools.push(definition); return () => {} } },
-      systemPrompt: { context: contribution => { contexts.push(contribution); return () => {} } },
+      // 目标现在走"请求时组装"，不再落 context。这里模拟瀑布：
+      // 同步跑一遍钩子，把产出的 section 包成旧断言的形状，
+      // text 每次重新求值，所以断言时看到的是当下状态。
+      on(event, handler) {
+        if (event !== 'system-prompt/assemble') return () => {}
+        const run = () => {
+          const assembly = { sections: [], contexts: [], tools: [], variables: {} }
+          handler(assembly, { agent }, () => assembly)
+          return assembly.sections[0]
+        }
+        contexts.push({
+          get name() { return run()?.name ?? '' },
+          get order() { return run()?.order ?? 0 },
+          interpolate: false,
+          text: () => run()?.text ?? '',
+        })
+        return () => {}
+      },
     },
     registered: tools,
     contexts,
   }
+  return agent
 }
 
 /** 跑一次 apply，并让给定 cwd 的 Agent 被创建。默认把工作区设成它的 cwd。 */
@@ -72,7 +91,7 @@ describe('plugin wiring', () => {
   it('registers one plan tool and one tail context per eligible agent', () => {
     const agent = mount({ statePath }, workspace)
     assert.deepEqual(agent.registered.map(tool => tool.name), ['plan'])
-    assert.deepEqual(agent.contexts.map(contribution => contribution.name), ['goal:agenda'])
+    assert.deepEqual(agent.contexts.map(contribution => contribution.name), ['sinecause:goal'])
     assert.equal(agent.contexts[0].interpolate, false)
     assert.ok(agent.contexts[0].order > 210, '尾部 context 要排在所有内建 context 之后')
     assert.deepEqual(agent.registered[0].parameters.properties.action.enum, ACTIONS)
