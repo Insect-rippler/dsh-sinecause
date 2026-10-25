@@ -31,9 +31,19 @@ export const DEFAULT_ORDER = 1
 export const DEFAULT_MAX_CHARS = 1200
 
 /**
+ * 尾部回声的位置：排在记忆（250）与目标（300）之前。
+ *
+ * 为什么要在尾部再说一遍：系统提示的注意力会随上下文变长而衰减
+ * （1000 token 在 2000 里占一半，在 80000 里只剩百分之一）。
+ * 开头和结尾是最能牵引注意力的两个位置，**同一件事在两处各说一次是必要的**——
+ * 对人格尤其如此：它优先于一切，最不能掉。
+ */
+export const DEFAULT_ECHO_ORDER = 240
+
+/**
  * 校验配置。
  * @param {object} [config]
- * @returns {{ workspaceRoot: string, personaPath: string, maxChars: number, order: number }}
+ * @returns {{ workspaceRoot: string, personaPath: string, maxChars: number, order: number, echo: boolean, echoOrder: number }}
  */
 export function resolveConfig(config) {
   const workspaceRoot = resolveWorkspaceRoot(config?.workspaceRoot)
@@ -46,7 +56,15 @@ export function resolveConfig(config) {
   if (!Number.isFinite(order)) {
     throw new TypeError('sinecause-persona: order 必须是数字')
   }
-  return { workspaceRoot, personaPath, maxChars, order }
+  const echo = config?.echo ?? true
+  if (typeof echo !== 'boolean') {
+    throw new TypeError('sinecause-persona: echo 必须是布尔值')
+  }
+  const echoOrder = config?.echoOrder ?? DEFAULT_ECHO_ORDER
+  if (!Number.isFinite(echoOrder)) {
+    throw new TypeError('sinecause-persona: echoOrder 必须是数字')
+  }
+  return { workspaceRoot, personaPath, maxChars, order, echo, echoOrder }
 }
 
 /**
@@ -93,20 +111,41 @@ export function apply(ctx, config) {
     if (agent.session?.header?.origin === 'subagent') return
     const cwd = sessionCwd(ctx, agent)
     if (!inWorkspace(cwd, resolved.workspaceRoot)) return
+
+    const live = () => {
+      // 会话可能中途换出工作区，注入前再判一次。
+      if (!inWorkspace(sessionCwd(ctx, agent), resolved.workspaceRoot)) return ''
+      return body()
+    }
+
     try {
       agent.ctx.systemPrompt.section({
         name: 'sinecause:persona',
         order: resolved.order,
         // 人格正文是用户数据，不能当提示词模板插值。
         interpolate: false,
-        text: () => {
-          // 会话可能中途换出工作区，注入前再判一次。
-          if (!inWorkspace(sessionCwd(ctx, agent), resolved.workspaceRoot)) return ''
-          return body()
-        },
+        text: live,
       })
     } catch (error) {
       ctx.logger?.warn?.(`sinecause-persona: 注册失败：${String(error?.message ?? error)}`)
+    }
+
+    // 尾部的同一份，换个标题：它不是重复，是注意力锚点。
+    if (resolved.echo) {
+      try {
+        agent.ctx.systemPrompt.context({
+          name: 'sinecause:persona-echo',
+          order: resolved.echoOrder,
+          interpolate: false,
+          text: () => {
+            const text = live()
+            return text === '' ? '' : `## 立场\n\n${text}`
+          },
+        })
+      } catch (error) {
+        // 尾部回声失败不该让人格整个消失：开头那份还在。
+        ctx.logger?.warn?.(`sinecause-persona: 立场回声注册失败：${String(error?.message ?? error)}`)
+      }
     }
   })
 }

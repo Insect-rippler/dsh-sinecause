@@ -1,6 +1,6 @@
 {
   "name": "dsh-sinecause",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "type": "module",
   "description": "给 DSH 上的一个会话装上自己的目标、记忆和作息：goal / memory / clock 三个插件",
   "license": "MIT",

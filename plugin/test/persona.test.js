@@ -28,14 +28,20 @@ function fakeCtx() {
 
 function fakeAgent(cwd, origin) {
   const sections = []
+  const contexts = []
   return {
     id: `session-${cwd}`,
     session: { header: { cwd, ...origin === undefined ? {} : { origin } } },
     sections,
+    contexts,
     ctx: {
       systemPrompt: {
         section(spec) {
           sections.push(spec)
+          return () => {}
+        },
+        context(spec) {
+          contexts.push(spec)
           return () => {}
         },
       },
@@ -105,9 +111,39 @@ describe('plugin wiring', () => {
   it('gives nothing to sessions outside the workspace or to subagents', () => {
     const outside = mount({ workspaceRoot: workspace, personaPath: tempPersona('我是谁') }, 'C:/elsewhere')
     assert.deepEqual(outside.agent.sections, [])
+    assert.deepEqual(outside.agent.contexts, [])
 
     const sub = mount({ workspaceRoot: workspace, personaPath: tempPersona('我是谁') }, workspace, 'subagent')
     assert.deepEqual(sub.agent.sections, [], '子代理是工具，不是另一个人格')
+    assert.deepEqual(sub.agent.contexts, [])
+  })
+
+  // 系统提示的注意力会随上下文变长衰减：头尾两处各说一次是必要的冗余。
+  it('echoes the same text in the tail as a stance anchor', () => {
+    const { agent } = mount({ workspaceRoot: workspace, personaPath: tempPersona('我是谁') }, workspace)
+    assert.equal(agent.contexts.length, 1)
+    const [echo] = agent.contexts
+    assert.equal(echo.name, 'sinecause:persona-echo')
+    assert.ok(echo.order < 250, '要排在记忆（250）之前')
+    assert.ok(echo.order < 300, '也要排在目标（300）之前')
+    assert.equal(echo.interpolate, false)
+    assert.match(echo.text(), /^## 立场/)
+    assert.match(echo.text(), /我是谁/)
+  })
+
+  it('can turn the echo off without losing the head copy', () => {
+    const { agent } = mount(
+      { workspaceRoot: workspace, personaPath: tempPersona('我是谁'), echo: false },
+      workspace,
+    )
+    assert.deepEqual(agent.contexts, [])
+    assert.equal(agent.sections.length, 1)
+  })
+
+  it('echoes nothing when there is no persona file', () => {
+    const path = join(mkdtempSync(join(tmpdir(), 'persona-')), 'persona.md')
+    const { agent } = mount({ workspaceRoot: workspace, personaPath: path }, workspace)
+    assert.equal(agent.contexts[0].text(), '')
   })
 
   it('injects nothing when there is no persona file', () => {
