@@ -166,6 +166,22 @@ transformers.js 加载 ONNX，int8 量化。
 [cordis.patch.yml](cordis.patch.yml) 里的 `intervalMinutes` 改成 30（中等）或更大，
 重启生效。
 
+### `heartbeat`：把门槛调大
+
+默认每 `intervalMinutes` 一跳。当她知道手上这件事当下做不了、又不想被每十分钟叫一次时：
+
+```
+heartbeat({ idleMinutes: 120, reason: '在等一个外部回复' })
+```
+
+- **按最近一次动静计时**，不是墙上时钟——任何人说话、任何工具调用都会重新开始计；
+- 醒一次自动回到默认节拍，不需要她记得撤销；`idleMinutes: 0` 立刻恢复；
+- 门槛存在 `state/heartbeat.json`，重启后还在；
+- 只对工作区内的会话可见（注册在 `agent.ctx` 上）。
+
+和 `schedule` 的区别：`schedule` 到点就响；`heartbeat` 只要有人在说话就永远不响。
+后者才是"保活"，前者是"提醒"。详见 `docs/heartbeat.md`。
+
 ## 配置
 
 goal：

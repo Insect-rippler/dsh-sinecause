@@ -15,14 +15,14 @@ DSH 的检出目录（`C:\Users\isyhn\deepseek-harness`）只是实现依赖：�
 
 ## 架构
 
-Agent 由 loop 加四个横向系统（persona / goal / wait / memory）和一台时钟组成；
-goal、memory 第一层、时钟已实现，wait 与 persona 待定。
+Agent 由 loop 加四个横向系统（persona / goal / wait→heartbeat / memory）和一台时钟组成；
+goal、memory 第一层、heartbeat、时钟已实现，persona 待定。
 
 | 系统 | 状态 | 职责 |
 |---|---|---|
 | persona | 待定 | 人格：稳定的身份与表达方式，位于上下文开头 |
 | goal | 已实现 | 注意力强化：agent 自行设定 plan 并分步完成；内容注入在上下文**末尾**，持续把注意力拉回当前步骤 |
-| wait | 待定 | 等待工具：主动断开 loop，把控制权交回外部（事件、定时器、人类），被唤醒后再继续 |
+| wait → heartbeat | 已实现 | 保活：她知道这事当下做不了时，用 `heartbeat(idleMinutes)` 把门槛调大——**按最近一次动静计**，安静够久才醒，醒一次回默认节拍。不是定时任务（那是 `schedule`），也不是任务管理（DSH 受阻会自己停） |
 | memory | 第一层 | 记忆库：常驻档案（`anchor`/`self`）每次请求注入，流水（`skill`/`fact`/`episode`/`promise`）按分数召回；整理由**计数触发**（每攒够 N 条见闻提醒一次），不是时钟；新旧判断已用 bge-base-zh 向量 |
 | clock | 已实现 | 连续性：没人在说话时按间隔叫醒她（快速迭代期 10 分钟，稳定后调大）；只叫最近活跃的工作区会话，关机即失去意识、不补算错过的时段 |
 
@@ -34,6 +34,7 @@ state/agenda.json    目标与计划的唯一状态文件（与 SineCause 的 ag
 state/memory.json    记忆库（v2 schema，与 SineCause 的 memory.json 字段兼容）
 plugin/              dsh-sinecause：goal + memory + clock 三个入口，见 plugin/README.md
 docs/deploy.md       部署教程（对外分发用）
+docs/heartbeat.md    保活机制的设计与语义
 README.md            仓库门面：它是什么、三个设计取舍、限制
 ```
 
@@ -41,7 +42,8 @@ README.md            仓库门面：它是什么、三个设计取舍、限制
 
 - **goal 与 persona 是一对镜像。** persona 定"我是谁"，放在开头；goal 定"此刻做什么"，放在末尾。
   goal 若出现在上下文开头，就退化成普通指令，失去逐轮引导注意力的作用。
-- **wait 不是 sleep。** 它结束本轮而不是空转等待，因此不消耗模型轮次；唤醒必须来自外部。
+- **heartbeat 不是 sleep，也不是定时任务。** 它按"安静了多久"触发，任何动静都会重新计时；
+  定时到点触发的是 `schedule`。早期 `wait` 的语义（强行结束一轮）已作废：模型说完话一轮自然就结束。
 
 ## 约定
 
@@ -77,6 +79,5 @@ README.md            仓库门面：它是什么、三个设计取舍、限制
 - 向量检索：召回还是词法。要改成向量，得在 pre-step 异步算好查询向量再缓存，
   因为 `systemPrompt.context()` 的 text 是同步的。
 - 模型尺度：现在用 int8 的 bge-base-zh-v1.5；升级硬件后换更大模型要重新标定 `vectorThreshold`。
-- wait 的唤醒源（定时器、外部事件、人类）与它和 `agenda.json` 里 `timers` 的关系。
 - 这套组合最终以 preset 还是独立 profile 承载，以及是否使用工作区内的 `.dsh` 作为独立 `DSH_HOME`。
 - 技能放在 `.agents/skills/` 还是 `.dsh/skills/`。

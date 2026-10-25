@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, it } from 'node:test'
 
 import {
@@ -10,12 +13,13 @@ import {
   shouldWake,
 } from '../src/clock/decide.js'
 import { apply, createRegistry, heartbeatMessage, runTick } from '../src/clock/index.js'
+import { HeartbeatStore } from '../src/clock/heartbeat-store.js'
 
 const MINUTE = 60_000
 
 describe('shouldWake', () => {
   it('only wakes an idle agent past the interval', () => {
-    const base = { now: 10 * MINUTE, intervalMs: 5 * MINUTE }
+    const base = { now: 10 * MINUTE, minIdleMs: 5 * MINUTE }
     assert.equal(shouldWake({ ...base, lastActivity: 0, busy: false }), true)
     assert.equal(shouldWake({ ...base, lastActivity: 6 * MINUTE, busy: false }), false)
     assert.equal(shouldWake({ ...base, lastActivity: 0, busy: true }), false)
@@ -30,7 +34,7 @@ describe('pickTarget', () => {
       { id: 'recent', lastActivity: 9 * MINUTE, busy: false },
       { id: 'busy', lastActivity: 9 * MINUTE, busy: true },
     ]
-    assert.equal(pickTarget(agents, { now: 20 * MINUTE, intervalMs: 5 * MINUTE }), 'recent')
+    assert.equal(pickTarget(agents, { now: 20 * MINUTE, minIdleMs: 5 * MINUTE }), 'recent')
   })
 
   it('returns nothing when everyone is busy or fresh', () => {
@@ -38,7 +42,7 @@ describe('pickTarget', () => {
       { id: 'busy', lastActivity: 0, busy: true },
       { id: 'fresh', lastActivity: 19 * MINUTE, busy: false },
     ]
-    assert.equal(pickTarget(agents, { now: 20 * MINUTE, intervalMs: 5 * MINUTE }), undefined)
+    assert.equal(pickTarget(agents, { now: 20 * MINUTE, minIdleMs: 5 * MINUTE }), undefined)
   })
 })
 
@@ -106,10 +110,11 @@ describe('plugin wiring', () => {
     }
   }
 
-  /** 一个只记录 followup / inbox.append 的假 Agent。 */
+  /** 一个只记录 followup / inbox.append / 工具注册的假 Agent。 */
   function fakeAgent(cwd, origin) {
     const followed = []
     const appended = []
+    const tools = []
     const id = origin === undefined ? `session-${cwd}` : `session-${cwd}-${origin}`
     return {
       id,
@@ -119,6 +124,14 @@ describe('plugin wiring', () => {
       },
       followed,
       appended,
+      tools,
+      ctx: {
+        tools: {
+          register(spec) {
+            tools.push(spec)
+          },
+        },
+      },
       followup(message) {
         followed.push(message)
       },
@@ -198,6 +211,41 @@ describe('plugin wiring', () => {
     const { ctx } = mountWith({ intervalMinutes: 5, workspaceRoot: 'C:/work/sinecause' }, 'C:/work/sinecause')
 
     assert.doesNotThrow(() => ctx.listeners.get('session/event')({ id: 'someone-else' }))
+  })
+
+  it('gives workspace sessions a heartbeat tool, and nobody else', (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'Date'], now: 0 })
+    const inside = mountWith({ intervalMinutes: 5, workspaceRoot: 'C:/work/sinecause' }, 'C:/work/sinecause')
+    const outside = mountWith({ intervalMinutes: 5, workspaceRoot: 'C:/work/sinecause' }, 'C:/elsewhere')
+
+    assert.deepEqual(inside.agent.tools.map(tool => tool.name), ['heartbeat'])
+    assert.deepEqual(outside.agent.tools, [], '工作区之外的会话不该长出这个工具')
+  })
+
+  it('sets and clears the threshold through the tool', (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'Date'], now: 0 })
+    const statePath = join(mkdtempSync(join(tmpdir(), 'beat-tool-')), 'heartbeat.json')
+    const { agent } = mountWith(
+      { intervalMinutes: 5, workspaceRoot: 'C:/work/sinecause', statePath },
+      'C:/work/sinecause',
+    )
+    const tool = agent.tools[0]
+
+    const set = tool.execute({ idleMinutes: 120, reason: '在等一个外部回复' }, { agent })
+    assert.match(set.note, /2 小时/)
+    assert.equal(new HeartbeatStore(statePath).get(agent.id).idleMs, 120 * 60_000)
+
+    const cleared = tool.execute({ idleMinutes: 0 }, { agent })
+    assert.match(cleared.note, /默认节拍/)
+    assert.equal(new HeartbeatStore(statePath).get(agent.id), undefined)
+  })
+
+  it('rejects an out-of-range threshold', (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'Date'], now: 0 })
+    const { agent } = mountWith({ intervalMinutes: 5, workspaceRoot: 'C:/work/sinecause' }, 'C:/work/sinecause')
+    const tool = agent.tools[0]
+    assert.throws(() => tool.execute({ idleMinutes: -1 }, { agent }), /0 到 1440/)
+    assert.throws(() => tool.execute({ idleMinutes: 5000 }, { agent }), /0 到 1440/)
   })
 
   it('rejects invalid configuration at load', () => {

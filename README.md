@@ -11,7 +11,7 @@
 |---|---|
 | `dsh-sinecause` | 目标与计划。Agent 自己立 plan、分步推进；内容注入在**上下文末尾**，持续把注意力拉回当前步骤 |
 | `dsh-sinecause/memory` | 记忆库。常驻档案（`anchor`/`self`）每次请求都注入，流水（`skill`/`fact`/`episode`/`promise`）按相似度召回 |
-| `dsh-sinecause/clock` | 时钟。没人说话时按间隔叫醒它，让它自己找事做 |
+| `dsh-sinecause/clock` | 时钟与保活。没人说话时按间隔叫醒它；她也能用 `heartbeat` 说"让我安静两小时"，按最近一次动静计时 |
 
 三者都只对 cwd 落在 `workspaceRoot` 下的会话生效——装进共享 profile 不会影响其它工作区的会话。
 

@@ -1,5 +1,25 @@
 # 变更记录
 
+## 0.1.4 — 2026-10-25
+
+### 新增：heartbeat 工具（取代早期 wait 的设想）
+
+她知道手上的事当下做不了时，可以让自己安静久一点：
+
+```
+heartbeat({ idleMinutes: 120, reason: '在等一个外部回复' })
+```
+
+- **按最近一次动静计时**，不是墙上时钟：任何动静都会重新开始计；
+- 醒一次自动回到默认节拍（10 分钟），不需要她记得撤销；idleMinutes: 0 立刻恢复；
+- 门槛写在 `state/heartbeat.json`，重启后还在；
+- 只对工作区内的会话可见。
+
+和 schedule 的区别：schedule 到点就响，heartbeat 只要有人在说话就永远不响——
+后者才是"保活"。
+
+早期 wait 设计里那套"强行结束一轮"（借 locked 收轮）**作废**：模型说完话一轮自然就结束。
+设计稿 `docs/heartbeat.md`。
 ## 0.1.3 — 2026-10-25
 
 发布链路改为 **OIDC 可信发布**：推 tag 触发 GitHub Actions，`npm publish --provenance`，

@@ -10,14 +10,16 @@
 
 import { randomUUID } from 'node:crypto'
 
-import { resolveWorkspaceRoot } from '../paths.js'
+import { resolveStatePath, resolveWorkspaceRoot } from '../paths.js'
 import { inWorkspace } from '../workspace-gate.js'
 import {
   DEFAULT_INTERVAL_MINUTES,
+  idleText,
   pickTarget,
   renderTick,
   shouldWake,
 } from './decide.js'
+import { HeartbeatStore } from './heartbeat-store.js'
 
 /** Cordis 插件名。 */
 export const name = 'sinecause-clock'
@@ -31,6 +33,7 @@ function resolveConfig(config) {
     throw new TypeError('sinecause-clock: intervalMinutes 必须是正数')
   }
   const workspaceRoot = resolveWorkspaceRoot(config?.workspaceRoot)
+  const statePath = resolveStatePath(config?.statePath, workspaceRoot, 'heartbeat.json')
   const prompt = config?.prompt
   if (prompt !== undefined && typeof prompt !== 'string') {
     throw new TypeError('sinecause-clock: prompt 必须是字符串')
@@ -39,6 +42,7 @@ function resolveConfig(config) {
     intervalMinutes,
     intervalMs: intervalMinutes * 60_000,
     workspaceRoot,
+    statePath,
     prompt,
   }
 }
@@ -108,7 +112,9 @@ export function runTick(registry, options) {
   const { now, intervalMs, prompt, send, warn, workspaceRoot } = options
   const candidates = registry.list()
     .filter(entry => inWorkspace(registry.get(entry.id).cwd, workspaceRoot))
-  const target = pickTarget(candidates, { now, intervalMs })
+    // 会话自己设的门槛优先：这是 heartbeat 的全部意义。
+    .map(entry => ({ ...entry, minIdleMs: options.minIdleMsOf?.(entry.id) }))
+  const target = pickTarget(candidates, { now, minIdleMs: intervalMs })
   if (target === undefined) return undefined
   const entry = registry.get(target)
   const text = renderTick({ now, idleMs: now - entry.lastActivity, prompt })
@@ -119,13 +125,87 @@ export function runTick(registry, options) {
     warn?.(`唤醒失败：${String(error?.message ?? error)}`)
   }
   registry.touch(target, now)
+  // 醒过一次，自定义门槛就完成使命了，回到默认节拍。
+  options.clearOverride?.(target)
   return target
+}
+
+const HEARTBEAT_DESCRIPTION = [
+  '设置下一次心跳的时机——不是定时任务，而是"安静多久之后再来叫我"。',
+  '默认节拍是每 10 分钟一次。当你判断手上的事两小时内没戏、又不想被每十分钟叫一次时，',
+  '用它把门槛调大：之后任何动静（你说话、我回话、工具调用）都会重新计时。',
+  '醒过一次就自动回到默认节拍。idleMinutes 设 0 可以立刻恢复默认。',
+].join('')
+
+const HEARTBEAT_PARAMETERS = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    idleMinutes: {
+      type: 'number',
+      description: '安静多少分钟之后再叫醒我；0 表示恢复默认节拍。上限 1440（一天）。',
+    },
+    reason: {
+      type: 'string',
+      description: '为什么慢下来，一句话。',
+    },
+  },
+  required: ['idleMinutes'],
+}
+
+const HEARTBEAT_OUTPUT = {
+  type: 'object',
+  additionalProperties: false,
+  properties: { note: { type: 'string', description: '确认信息。' } },
+  required: ['note'],
+}
+
+/**
+ * 给一个会话注册 `heartbeat` 工具。
+ *
+ * 注册在 `agent.ctx` 上，所以只对这一个会话可见；工作区判定再做一次，
+ * 因为会话中途换目录是可能的。
+ */
+function registerHeartbeatTool(agent, resolved, beats, currentCwd) {
+  const ctx = agent.ctx
+  ctx.tools.register({
+    name: 'heartbeat',
+    description: HEARTBEAT_DESCRIPTION,
+    parameters: HEARTBEAT_PARAMETERS,
+    output: {
+      schema: HEARTBEAT_OUTPUT,
+      render: (_args, value) => [{ type: 'text', text: value.note }],
+    },
+    execute(args, exec) {
+      const cwd = currentCwd() ?? exec?.agent?.session?.header?.cwd
+      if (!inWorkspace(cwd, resolved.workspaceRoot)) {
+        throw new Error(`heartbeat 只在这个工作区的会话里可用（当前目录 ${String(cwd ?? '未知')}）`)
+      }
+      const minutes = Number(args?.idleMinutes)
+      if (!Number.isFinite(minutes) || minutes < 0 || minutes > 1440) {
+        throw new Error('idleMinutes 必须在 0 到 1440 之间')
+      }
+      const id = String(exec?.agent?.id ?? agent.id)
+      if (minutes === 0) {
+        beats.clear(id)
+        return { note: `已恢复默认节拍：安静 ${resolved.intervalMinutes} 分钟叫一次。` }
+      }
+      beats.set(id, Math.round(minutes * 60_000))
+      const why = String(args?.reason ?? '').trim()
+      return {
+        note: `知道了：安静 ${idleText(minutes * 60_000)} 之后再来叫你。`
+          + '这期间任何动静都会重新计时；醒一次就回到默认节拍。'
+          + (why === '' ? '' : `（原因：${why}）`),
+      }
+    },
+  })
 }
 
 export function apply(ctx, config) {
   const resolved = resolveConfig(config)
   const registry = createRegistry()
   registry.workspaceRoot = resolved.workspaceRoot
+  const beats = new HeartbeatStore(resolved.statePath)
 
   ctx.on('agent/created', ({ agent }) => {
     // 子代理是她的工具，不是她本人：给子代理发心跳只会浪费一轮。
@@ -133,6 +213,12 @@ export function apply(ctx, config) {
     const cwd = sessionCwd(ctx, agent)
     if (!inWorkspace(cwd, resolved.workspaceRoot)) return
     registry.track(String(agent.id), agent, cwd)
+    try {
+      registerHeartbeatTool(agent, resolved, beats, () => sessionCwd(ctx, agent))
+    } catch (error) {
+      // 注册失败不该让时钟停摆：没有工具就只是回到固定节拍。
+      ctx.logger?.warn?.(`sinecause-clock: heartbeat 工具注册失败：${String(error?.message ?? error)}`)
+    }
   })
 
   ctx.on('agent/disposed', ({ agent }) => {
@@ -156,6 +242,8 @@ export function apply(ctx, config) {
         intervalMs: resolved.intervalMs,
         prompt: resolved.prompt,
         workspaceRoot: resolved.workspaceRoot,
+        minIdleMsOf: id => beats.get(id)?.idleMs,
+        clearOverride: id => beats.clear(id),
         send: (agent, text) => {
           // 必须走 followup：inbox.append 只入队，不叫醒驱动。
           agent.followup(heartbeatMessage(text))

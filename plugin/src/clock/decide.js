@@ -35,13 +35,16 @@ export function idleText(ms) {
 
 /**
  * 该不该叫醒：空闲够久、且这一轮没在跑。
- * @param {{ now: number, lastActivity: number, intervalMs: number, busy: boolean }} state
+ *
+ * `minIdleMs` 是这一跳的门槛：默认是配置的间隔，会话自己用 `heartbeat` 调过就以它为准
+ * （—"这事两小时内没戏，别每十分钟叫我"）。
+ * @param {{ now: number, lastActivity: number, minIdleMs: number, busy: boolean }} state
  * @returns {boolean}
  */
-export function shouldWake({ now, lastActivity, intervalMs, busy }) {
+export function shouldWake({ now, lastActivity, minIdleMs, busy }) {
   if (busy) return false
   if (!Number.isFinite(lastActivity)) return false
-  return now - lastActivity >= intervalMs
+  return now - lastActivity >= minIdleMs
 }
 
 /**
@@ -59,15 +62,16 @@ export function renderTick({ now, idleMs, prompt }) {
 /**
  * 挑要叫醒的那个：空闲够久、没在跑的里面，取最近活跃的一个。
  * 她是一个人，不是一群——多个会话同时活着时，只叫最近说话的那个。
- * @param {{ id: string, lastActivity: number, busy: boolean }[]} agents
- * @param {{ now: number, intervalMs: number }} options
+ * @param {{ id: string, lastActivity: number, busy: boolean, minIdleMs?: number }[]} agents
+ * @param {{ now: number, minIdleMs: number }} options
  * @returns {string | undefined} 被选中的 agent id。
  */
-export function pickTarget(agents, { now, intervalMs }) {
+export function pickTarget(agents, { now, minIdleMs }) {
   const ready = agents.filter(agent => shouldWake({
     now,
     lastActivity: agent.lastActivity,
-    intervalMs,
+    // 会话自己设了门槛就用它的——这是 heartbeat 的全部意义。
+    minIdleMs: agent.minIdleMs ?? minIdleMs,
     busy: agent.busy,
   }))
   if (ready.length === 0) return undefined
