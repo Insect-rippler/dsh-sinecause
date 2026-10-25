@@ -78,9 +78,25 @@ plugin/            Cordis 插件包（goal + memory + clock）
   src/clock/             心跳：按间隔醒来
   src/paths.js           工作区与状态文件的默认解析
   src/workspace-gate.js  工作区判定（三个插件共用）
-  test/                  137 个用例：node --test
+  test/                  139 个用例：node --test
 docs/deploy.md     部署教程
+.github/workflows/publish.yml   发布：推 tag 即发（OIDC，无需 token）
 ```
+
+## 发布
+
+发版不需要 token，也不需要人在现场：
+
+```sh
+# 1. 改 plugin/package.json 的版本号，写 CHANGELOG
+# 2. 推 tag
+git tag -a v0.1.3 -m "…" && git push origin v0.1.3
+```
+
+GitHub Actions 会跑测试、然后 `npm publish --provenance`。认证走 [OIDC 可信发布](https://docs.npmjs.com/trusted-publishers)——
+npm 认的是"哪个仓库的哪个 workflow"，不是一把长期密钥。
+
+一次性配置在 npm 的包设置页：Trusted Publisher 填 `Insect-rippler/dsh-sinecause` + `publish.yml`。
 
 ## 限制
 
