@@ -36,3 +36,8 @@
     # webhook 地址是凭据，写在 <workspace>/state/notify.json 里，不进这个文件。
     - id: sinecause-notify
       name: 'dsh-sinecause/notify'
+
+    # 调试：把每次请求的完整 payload 落一份到 state/last-request.md。
+    # 平时关着；要看时在 state/ 里放一个 dump-prompt.on 文件即可，不用重启。
+    - id: sinecause-promptdump
+      name: 'dsh-sinecause/promptdump'
