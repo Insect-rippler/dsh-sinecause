@@ -32,7 +32,8 @@ AGENTS.md            本文件
 state/agenda.json    目标与计划的唯一状态文件（与 SineCause 的 agenda.json 同构）
 state/memory.json    记忆库（v2 schema，与 SineCause 的 memory.json 字段兼容）
 state/persona.md     我是谁——注入在系统提示最前面，先于目标与一切策略
-plugin/              dsh-sinecause：persona + goal + memory + clock 四个入口，见 plugin/README.md
+plugin/              dsh-sinecause：persona + goal + memory + clock + notify，见 plugin/README.md
+state/notify.json    通知通道的 webhook（凭据，不入库）
 docs/deploy.md       部署教程（对外分发用）
 docs/heartbeat.md    保活机制的设计与语义
 README.md            仓库门面：它是什么、三个设计取舍、限制

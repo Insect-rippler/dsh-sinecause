@@ -242,6 +242,28 @@ registry=https://registry.npmmirror.com/
 
 ---
 
+## 5.5 可选：通知通道（`notify`）
+
+装好之后她可以主动推一条消息给你。默认接**飞书群机器人**——建个只有自己的群、加个自定义机器人，
+不需要审核、不需要公网地址。
+
+1. 飞书里建一个群 → 群设置 → 群机器人 → 添加 → **自定义机器人** → 复制 webhook 地址；
+2. 写进 `<WORKSPACE>/state/notify.json`（这个文件在 `state/` 下，不该进版本库）：
+
+```json
+{ "feishuWebhook": "https://open.feishu.cn/open-apis/bot/v2/hook/..." }
+```
+
+地址解析顺序：插件配置 `webhookUrl` → `state/notify.json` 的 `feishuWebhook` →
+环境变量 `SINECAUSE_FEISHU_WEBHOOK`。**调用时才读**，所以换地址不用重启（但新增这个入口要重启一次）。
+
+不配也能跑：`notify` 工具会注册，但调用时给出配置提示，不会静默失败。
+
+> 为什么是飞书：实测直连 Telegram / Discord 不通；飞书与企业微信可达。
+> 单向即可覆盖"她有事要告诉你"，双向还需要能收事件的通道（另议）。
+
+---
+
 ## 6. 准备向量模型
 
 插件需要 `Xenova/bge-base-zh-v1.5` 的 ONNX 副本（int8 约 98MB）。
