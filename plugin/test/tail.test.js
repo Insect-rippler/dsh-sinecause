@@ -61,6 +61,26 @@ describe('request tail', () => {
     assert.match(textOf(messages[2]), /## 目标与计划/)
   })
 
+  // "本轮触发"不只有用户发言：心跳和定时唤醒也是同一种槽位，处理方式必须一样。
+  it('treats a heartbeat wake like any other turn trigger', () => {
+    const agent = fakeAgent()
+    registerTailBlock(agent, {
+      name: 'memory',
+      order: TAIL_ORDERS.memory,
+      placement: PLACEMENT.beforeUser,
+      text: () => '## 记忆\nx',
+    })
+    registerTailBlock(agent, { name: 'goal', order: TAIL_ORDERS.goal, text: () => '## 目标' })
+
+    const messages = agent.run([
+      { role: 'user', source: { kind: 'clock' }, content: [{ type: 'text', text: '[心跳] 现在是 12:40' }] },
+    ])
+    assert.equal(messages.length, 3)
+    assert.match(textOf(messages[0]), /## 记忆/)
+    assert.match(textOf(messages[1]), /心跳/, '心跳消息保持在原位')
+    assert.match(textOf(messages[2]), /## 目标/)
+  })
+
   it('keeps the original messages untouched when a block renders empty', () => {
     const agent = fakeAgent()
     registerTailBlock(agent, {

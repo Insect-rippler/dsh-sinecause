@@ -5,10 +5,13 @@
  *   persona（系统提示最前面）
  *   系统提示其余部分
  *   session 历史
- *   ┌ 记忆（常驻档案 + 本轮向量/词法命中）    ← 插在 user 消息之前：先想起记得什么
+ *   ┌ 记忆（常驻档案 + 本轮向量/词法命中）    ← 插在本轮触发之前：先想起记得什么
  *   ├ 立场（persona 快照）                  ← 记忆的最内层，最贴近这一轮的请求
- *   user_message
+ *   本轮触发（他说话 / 心跳唤醒 / 定时任务）
  *   └ 目标（注意力引导）                     ← 最后一条：此刻该做什么
+ *
+ * "本轮触发"不等于 user_message：心跳和定时唤醒也会生成一条 user 角色的消息，
+ * 只是 source.kind 不同。它们占的是同一个槽位，处理方式也一样。
  *
  * 三条路里为什么选这条：
  * - `systemPrompt.context()`：会被 materialize 成 durable snapshot，真的写进会话历史；
@@ -70,8 +73,8 @@ export function registerTailBlock(agent, block) {
 
         const messages = [...(options.messages ?? [])]
         const last = messages[messages.length - 1]
-        // 只有"最后一条是 user 消息"时才有"插在它之前"这个位置；
-        // 工具结果之类的步骤就都追加到最后，顺序仍然是 记忆 → 目标。
+        // "本轮触发"的判据是角色为 user：他说话、心跳唤醒、定时任务都是这一种，
+        // 只是 source.kind 不同。工具结果那一步则都追加到末尾，顺序仍是 记忆 → 目标。
         if (before !== '' && last?.role === 'user') {
           messages.splice(messages.length - 1, 0, { role: 'user', content: [{ type: 'text', text: before }] })
         } else if (before !== '') {
