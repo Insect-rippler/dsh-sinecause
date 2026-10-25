@@ -113,25 +113,43 @@ export function apply(ctx, config) {
     const cwd = sessionCwd(ctx, agent)
     if (!inWorkspace(cwd, resolved.workspaceRoot)) return
 
-    const live = () => {
-      // 会话可能中途换出工作区，注入前再判一次。
-      if (!inWorkspace(sessionCwd(ctx, agent), resolved.workspaceRoot)) return ''
-      return body()
-    }
+    // 注册时已经按工作区筛过了。这里不再重复判一次：
+    // 那个判据一旦因为取不到 cwd 而返回空串，整段人格就会静默消失——实测栽过一次。
+    const live = () => body()
 
     try {
-      // 必须走 `agent.ctx.inject(...)` 拿到的 scope 再注册：
-      // 直接写 `agent.ctx.systemPrompt.section(...)` 会静默失效——
-      // `context()` 侥幸生效过，所以这个坑特别难看出来（实测：系统提示里根本没有人格）。
-      agent.ctx.inject(['systemPrompt'], scope => {
-        scope.systemPrompt.section({
-          name: 'sinecause:persona',
-          order: resolved.order,
-          // 人格正文是用户数据，不能当提示词模板插值。
-          interpolate: false,
-          text: live,
-        })
+      // 人格直接拼到请求里那条 system 消息的最前面。
+      //
+      // 试过两条"正规"的路，都不行：
+      // - `systemPrompt.section()` / `agent.ctx.inject(scope).section()`：实测系统提示里
+      //   一个字都没有（`promptdump` 拍到的全文 5775 字，不含人格）。
+      // - `system-prompt/assemble` 里 push：`AssembledSection` 没有 order 字段，
+      //   只能排在最后，永远到不了开头。
+      //
+      // 所以走和记忆/目标同一条已验证的钩子：`llm/stream`。区别只是改的是第一条
+      // system 消息的开头，而不是末尾追加。同样只影响这一份请求，不落库。
+      agent.ctx.on('llm/stream', (options, next) => {
+        try {
+          if (String(options?.sessionId) !== String(agent.id)) return next()
+          const text = live()
+          const first = options?.messages?.[0]
+          if (text !== '' && first?.role === 'system' && Array.isArray(first.content)) {
+            const [head, ...rest] = first.content
+            if (head?.type === 'text') {
+              options.messages = [
+                { ...first, content: [{ ...head, text: `${text}\n\n${head.text}` }, ...rest] },
+                ...options.messages.slice(1),
+              ]
+            }
+          }
+        } catch {
+          // 拼装失败也不该让请求发不出去。
+        }
+        return next()
       })
+    } catch (error) {
+      ctx.logger?.warn?.(`sinecause-persona: 注册失败：${String(error?.message ?? error)}`)
+    }
 
       // 尾部的同一份，换个标题：它不是重复，是注意力锚点。
       // 走"请求时组装"而不是 context()——后者会被写成 durable 快照塞进历史，
@@ -148,9 +166,6 @@ export function apply(ctx, config) {
           },
         })
       }
-    } catch (error) {
-      ctx.logger?.warn?.(`sinecause-persona: 注册失败：${String(error?.message ?? error)}`)
-    }
   })
 }
 

@@ -27,40 +27,32 @@ function fakeCtx() {
 }
 
 function fakeAgent(cwd, origin) {
-  const sections = []
-  const contexts = []
+  const handlers = []
   const agent = {
     id: `session-${cwd}`,
     session: { header: { cwd, ...origin === undefined ? {} : { origin } } },
-    sections,
-    contexts,
-    // 真实插件必须走 agent.ctx.inject(services, scope => ...) 才能注册系统提示；
-    // 直接写 agent.ctx.systemPrompt.section(...) 会静默失效（踩过）。
+    get hooks() { return handlers.length },
+    // 人格和立场回声都走 llm/stream：前者改第一条 system 消息的开头，
+    // 后者往末尾追加一条消息。
     ctx: {
-      inject(services, factory) {
-        assert.ok(services.includes('systemPrompt'), '注册人格需要 systemPrompt 服务')
-        factory({
-          systemPrompt: {
-            section(spec) {
-              sections.push(spec)
-              return () => {}
-            },
-          },
-        })
-        return { dispose: async () => {} }
-      },
-      // 立场回声挂在"请求末尾"：模拟 llm/stream，跑一遍钩子，把追加的那条消息取出来。
       on(event, handler) {
-        if (event !== 'llm/stream') return () => {}
-        const run = () => {
-          const options = { sessionId: agent.id, messages: [] }
-          handler(options, () => options)
-          const last = options.messages[options.messages.length - 1]
-          return last === undefined ? '' : last.content.map(part => part.text).join('\n')
-        }
-        contexts.push({ text: () => run() })
+        if (event === 'llm/stream') handlers.push(handler)
         return () => {}
       },
+    },
+    /** 跑一遍请求组装，返回 system 文本和末尾追加的内容。 */
+    run() {
+      const options = {
+        sessionId: agent.id,
+        messages: [{ role: 'system', content: [{ type: 'text', text: 'HARNESS' }] }],
+      }
+      for (const handler of handlers) handler(options, () => options)
+      const system = options.messages[0].content.map(part => part.text).join('\n')
+      const tail = options.messages
+        .slice(1)
+        .map(message => message.content.map(part => part.text).join('\n'))
+        .join('\n\n')
+      return { system, tail }
     },
   }
   return agent
@@ -113,35 +105,34 @@ describe('readPersona', () => {
 })
 
 describe('plugin wiring', () => {
-  it('registers one persona section at the front of the system prompt', () => {
-    const { agent } = mount({ workspaceRoot: workspace, personaPath: tempPersona('我是谁') }, workspace)
-    assert.equal(agent.sections.length, 1)
-    const [section] = agent.sections
-    assert.equal(section.name, 'sinecause:persona')
-    assert.equal(section.order, DEFAULT_ORDER)
-    assert.ok(section.order > -1000, '宿主身份仍然在最前')
-    assert.ok(section.order < 500, '但必须早于一切策略')
-    assert.equal(section.interpolate, false, '人格正文是用户数据，不能当模板插值')
-    assert.equal(section.text(), '我是谁')
+  it('prepends the persona to the system message', () => {
+    const { agent } = mount(
+      { workspaceRoot: workspace, personaPath: tempPersona('我是谁'), echo: false },
+      workspace,
+    )
+    const { system, tail } = agent.run()
+    assert.equal(system, '我是谁\n\nHARNESS', '人格在最前面，宿主原本的内容跟在后面')
+    assert.equal(tail, '', 'echo 关掉时不该在末尾追加')
   })
 
   it('gives nothing to sessions outside the workspace or to subagents', () => {
     const outside = mount({ workspaceRoot: workspace, personaPath: tempPersona('我是谁') }, 'C:/elsewhere')
-    assert.deepEqual(outside.agent.sections, [])
-    assert.deepEqual(outside.agent.contexts, [])
+    assert.equal(outside.agent.hooks, 0)
 
     const sub = mount({ workspaceRoot: workspace, personaPath: tempPersona('我是谁') }, workspace, 'subagent')
-    assert.deepEqual(sub.agent.sections, [], '子代理是工具，不是另一个人格')
-    assert.deepEqual(sub.agent.contexts, [])
+    assert.equal(sub.agent.hooks, 0, '子代理是工具，不是另一个人格')
   })
 
   // 系统提示的注意力会随上下文变长衰减：头尾两处各说一次是必要的冗余。
   it('echoes the same text at the very end of the request', () => {
-    const { agent } = mount({ workspaceRoot: workspace, personaPath: tempPersona('我是谁') }, workspace)
-    assert.equal(agent.contexts.length, 1)
-    const [echo] = agent.contexts
-    assert.match(echo.text(), /^## 立场/)
-    assert.match(echo.text(), /我是谁/)
+    const { agent } = mount(
+      { workspaceRoot: workspace, personaPath: tempPersona('我是谁'), echo: true },
+      workspace,
+    )
+    const { system, tail } = agent.run()
+    assert.equal(system, '我是谁\n\nHARNESS')
+    assert.match(tail, /^## 立场/)
+    assert.match(tail, /我是谁/)
   })
 
   it('can turn the echo off without losing the head copy', () => {
@@ -149,20 +140,17 @@ describe('plugin wiring', () => {
       { workspaceRoot: workspace, personaPath: tempPersona('我是谁'), echo: false },
       workspace,
     )
-    assert.deepEqual(agent.contexts, [])
-    assert.equal(agent.sections.length, 1)
-  })
-
-  it('echoes nothing when there is no persona file', () => {
-    const path = join(mkdtempSync(join(tmpdir(), 'persona-')), 'persona.md')
-    const { agent } = mount({ workspaceRoot: workspace, personaPath: path }, workspace)
-    assert.equal(agent.contexts[0].text(), '')
+    const { system, tail } = agent.run()
+    assert.equal(system, '我是谁\n\nHARNESS')
+    assert.equal(tail, '')
   })
 
   it('injects nothing when there is no persona file', () => {
     const path = join(mkdtempSync(join(tmpdir(), 'persona-')), 'persona.md')
-    const { agent } = mount({ workspaceRoot: workspace, personaPath: path }, workspace)
-    assert.equal(agent.sections[0].text(), '', '没有就是没有，不拿默认人设填坑')
+    const { agent } = mount({ workspaceRoot: workspace, personaPath: path, echo: true }, workspace)
+    const { system, tail } = agent.run()
+    assert.equal(system, 'HARNESS', '没有就是没有，不拿默认人设填坑')
+    assert.equal(tail, '')
   })
 
   it('rejects invalid configuration at load', () => {

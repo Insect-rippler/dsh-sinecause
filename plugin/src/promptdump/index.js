@@ -161,6 +161,9 @@ export function apply(ctx, config) {
   }
 
   ctx.on('llm/stream', (options, next) => {
+    // 先往下走，再拍：别的插件（比如 tail.js）会在自己的监听里往 messages 追加内容，
+    // 只有等下游都跑完，这里拍到的才是**真正发出去**的那一份。
+    const stream = next()
     try {
       const on = isOn()
       if (on) {
@@ -184,6 +187,6 @@ export function apply(ctx, config) {
     } catch (error) {
       report({ on: true, error: String(error?.message ?? error) })
     }
-    return next()
+    return stream
   })
 }
