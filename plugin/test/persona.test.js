@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it } from 'node:test'
 
-import { DEFAULT_ORDER, apply, readPersona, resolveConfig } from '../src/persona/index.js'
+import { DEFAULT_ORDER, PERSONA_PREFIX_SECTION, apply, readPersona, resolveConfig } from '../src/persona/index.js'
 
 const workspace = 'C:/work/sinecause'
 
@@ -28,31 +28,44 @@ function fakeCtx() {
 
 function fakeAgent(cwd, origin) {
   const handlers = []
+  const sections = []
   const agent = {
     id: `session-${cwd}`,
     session: { header: { cwd, ...origin === undefined ? {} : { origin } } },
-    get hooks() { return handlers.length },
-    // 人格和立场回声都走 llm/stream：前者改第一条 system 消息的开头，
-    // 后者往末尾追加一条消息。
+    get hooks() { return handlers.length + sections.length },
+    /** 收到的系统提示 section（人格走这条）。 */
+    get sections() { return sections },
+    // 人格进系统提示的 section 槽（deployment:persona-prefix）；
+    // 立场回声仍走 llm/stream，往请求末尾追加一条消息。
     ctx: {
+      systemPrompt: {
+        section(section) {
+          sections.push(section)
+          return () => {}
+        },
+      },
       on(event, handler) {
         if (event === 'llm/stream') handlers.push(handler)
         return () => {}
       },
     },
-    /** 跑一遍请求组装，返回 system 文本和末尾追加的内容。 */
+    /** 跑一遍组装，返回系统提示文本和末尾追加的内容。 */
     run() {
       const options = {
         sessionId: agent.id,
         messages: [{ role: 'system', content: [{ type: 'text', text: 'HARNESS' }] }],
       }
       for (const handler of handlers) handler(options, () => options)
-      const system = options.messages[0].content.map(part => part.text).join('\n')
+      const persona = sections
+        .map(section => (typeof section.text === 'function' ? section.text() : section.text))
+        .filter(text => text !== '')
+        .join('\n\n')
+      const system = [persona, 'HARNESS'].filter(text => text !== '').join('\n\n')
       const tail = options.messages
         .slice(1)
         .map(message => message.content.map(part => part.text).join('\n'))
         .join('\n\n')
-      return { system, tail }
+      return { system, tail, sections }
     },
   }
   return agent
@@ -105,12 +118,15 @@ describe('readPersona', () => {
 })
 
 describe('plugin wiring', () => {
-  it('prepends the persona to the system message', () => {
+  it('takes over the deployment persona slot', () => {
     const { agent } = mount(
       { workspaceRoot: workspace, personaPath: tempPersona('我是谁'), echo: false },
       workspace,
     )
-    const { system, tail } = agent.run()
+    const { system, tail, sections } = agent.run()
+    assert.equal(sections.length, 1, '人格只占一个 section')
+    assert.equal(sections[0].name, PERSONA_PREFIX_SECTION)
+    assert.equal(sections[0].order, DEFAULT_ORDER)
     assert.equal(system, '我是谁\n\nHARNESS', '人格在最前面，宿主原本的内容跟在后面')
     assert.equal(tail, '', 'echo 关掉时不该在末尾追加')
   })

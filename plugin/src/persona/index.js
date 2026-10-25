@@ -28,6 +28,13 @@ export const inject = ['systemPrompt', 'llm']
 /** 紧跟 DEPLOYMENT_PERSONA_PREFIX（order 0）之后，早于一切策略与工具说明。 */
 export const DEFAULT_ORDER = 1
 
+/**
+ * 宿主预留给「人格前缀」的那个 section 名字（system-prompt 包的 PERSONA_PREFIX_SECTION）。
+ * 在 Agent 自己的 scope 里注册同名 section 会**顶替**全局那一份，而不是并存——
+ * 所以这里不是"再插一段"，而是"接管那个槽"。
+ */
+export const PERSONA_PREFIX_SECTION = 'deployment:persona-prefix'
+
 /** persona 的字数上限。超过这个数说明在写废话，而不是在写自己。 */
 export const DEFAULT_MAX_CHARS = 1200
 
@@ -119,16 +126,16 @@ export function apply(ctx, config) {
     // 那个判据一旦因为取不到 cwd 而返回空串，整段人格就会静默消失——实测栽过一次。
     const live = () => body()
 
-    // 人格拼到请求里第一条 system 消息的最前面。
+    // 人格放进系统提示的最前面：接管 `deployment:persona-prefix` 这个槽。
     //
-    // 试过两条"正规"的路，都不行：
-    // - `systemPrompt.section()` / `agent.ctx.inject(scope).section()`：实测系统提示里
-    //   一个字都没有（`promptdump` 拍到的全文 5775 字，不含人格）。
-    // - `system-prompt/assemble` 里 push：`AssembledSection` 没有 order 字段，
-    //   只能排在最后，永远到不了开头。
+    // `agent.ctx` 就是这个 Agent 自己的 scope（agent-loop 里 `this.ctx = this.scope.ctx`），
+    // 在它上面注册的 section 只对这一路请求生效，并顶替全局同名的那一份。
     //
-    // 所以和记忆/目标共用一个通道（`llm/stream`，插件级 ctx），区别只是改 system 消息的开头。
-    registerRequestPrefix(agent, live)
+    // 之前走 `llm/stream` 改 `options.messages` 为什么一个字都进不去：loop 交给适配器的
+    // 请求是 **deepFreeze 过的**（agent-loop `deepFreeze(request)` + 每条 message 都冻结），
+    // 赋新值只会抛 TypeError，被 patch() 的 try 全吃掉——表现就是"代码跑了、请求没变"。
+    // `llm/stream` 只能读，不能写。
+    installPersonaSection(agent, live, resolved.order)
 
       // 尾部的同一份，换个标题：它不是重复，是注意力锚点。
       // 走"请求时组装"而不是 context()——后者会被写成 durable 快照塞进历史，
@@ -146,6 +153,31 @@ export function apply(ctx, config) {
         })
       }
   })
+}
+
+/**
+ * 把人格挂到该 Agent 的系统提示前缀槽上。
+ *
+ * 宿主没有 systemPrompt 服务时（单测里的假 ctx）退回旧的 `llm/stream` 前缀改法，
+ * 保证离线测试仍能驱动同一条组装路径。
+ *
+ * @param {any} agent
+ * @param {() => string} render
+ * @param {number} order
+ * @returns {() => void} 注销
+ */
+export function installPersonaSection(agent, render, order = DEFAULT_ORDER) {
+  try {
+    const prompt = agent.ctx?.systemPrompt
+    if (typeof prompt?.section === 'function') {
+      // text 给函数：每一轮都会重新读 persona.md（内部按 mtime 缓存），不必重注册。
+      return prompt.section({ name: PERSONA_PREFIX_SECTION, order, text: () => render() })
+    }
+  } catch {
+    // 服务接口变了也不能让会话建不起来，下面退回旧路。
+  }
+  registerRequestPrefix(agent, render)
+  return () => {}
 }
 
 /** 会话当前的工作目录；优先用 workingDirectory 服务，退回创建时的 header。 */
