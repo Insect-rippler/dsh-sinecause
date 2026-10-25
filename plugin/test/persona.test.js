@@ -34,16 +34,24 @@ function fakeAgent(cwd, origin) {
     session: { header: { cwd, ...origin === undefined ? {} : { origin } } },
     sections,
     contexts,
+    // 真实插件必须走 agent.ctx.inject(services, scope => ...) 才能注册系统提示；
+    // 直接写 agent.ctx.systemPrompt.section(...) 会静默失效（踩过）。
     ctx: {
-      systemPrompt: {
-        section(spec) {
-          sections.push(spec)
-          return () => {}
-        },
-        context(spec) {
-          contexts.push(spec)
-          return () => {}
-        },
+      inject(services, factory) {
+        assert.ok(services.includes('systemPrompt'), '注册人格需要 systemPrompt 服务')
+        factory({
+          systemPrompt: {
+            section(spec) {
+              sections.push(spec)
+              return () => {}
+            },
+            context(spec) {
+              contexts.push(spec)
+              return () => {}
+            },
+          },
+        })
+        return { dispose: async () => {} }
       },
     },
   }

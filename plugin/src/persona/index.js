@@ -119,21 +119,21 @@ export function apply(ctx, config) {
     }
 
     try {
-      agent.ctx.systemPrompt.section({
-        name: 'sinecause:persona',
-        order: resolved.order,
-        // 人格正文是用户数据，不能当提示词模板插值。
-        interpolate: false,
-        text: live,
-      })
-    } catch (error) {
-      ctx.logger?.warn?.(`sinecause-persona: 注册失败：${String(error?.message ?? error)}`)
-    }
+      // 必须走 `agent.ctx.inject(...)` 拿到的 scope 再注册：
+      // 直接写 `agent.ctx.systemPrompt.section(...)` 会静默失效——
+      // `context()` 侥幸生效过，所以这个坑特别难看出来（实测：系统提示里根本没有人格）。
+      agent.ctx.inject(['systemPrompt'], scope => {
+        scope.systemPrompt.section({
+          name: 'sinecause:persona',
+          order: resolved.order,
+          // 人格正文是用户数据，不能当提示词模板插值。
+          interpolate: false,
+          text: live,
+        })
 
-    // 尾部的同一份，换个标题：它不是重复，是注意力锚点。
-    if (resolved.echo) {
-      try {
-        agent.ctx.systemPrompt.context({
+        // 尾部的同一份，换个标题：它不是重复，是注意力锚点。
+        if (!resolved.echo) return
+        scope.systemPrompt.context({
           name: 'sinecause:persona-echo',
           order: resolved.echoOrder,
           interpolate: false,
@@ -142,10 +142,9 @@ export function apply(ctx, config) {
             return text === '' ? '' : `## 立场\n\n${text}`
           },
         })
-      } catch (error) {
-        // 尾部回声失败不该让人格整个消失：开头那份还在。
-        ctx.logger?.warn?.(`sinecause-persona: 立场回声注册失败：${String(error?.message ?? error)}`)
-      }
+      })
+    } catch (error) {
+      ctx.logger?.warn?.(`sinecause-persona: 注册失败：${String(error?.message ?? error)}`)
     }
   })
 }

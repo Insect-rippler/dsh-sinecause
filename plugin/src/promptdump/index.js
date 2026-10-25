@@ -33,8 +33,8 @@ export const name = 'sinecause-promptdump'
  */
 export const inject = ['llm', 'sessions']
 
-/** 单条消息正文在 .md 里的截断长度：够看出是什么，不会把文件撑爆。 */
-const TEXT_LIMIT = 4000
+/** 单条消息正文在 .md 里的截断长度：系统提示本身就有几千字，截太短反而看不清。 */
+const TEXT_LIMIT = 20000
 
 /** 原始 JSON 的上限：超了就不写，避免把工程目录塞满。 */
 const JSON_LIMIT = 4 * 1024 * 1024
