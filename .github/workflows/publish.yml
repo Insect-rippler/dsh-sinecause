@@ -9,7 +9,9 @@ on:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    # 跑在 Windows 上，因为测试里有一批 C:\... 的路径断言（workspace-gate 那组），
+    # 也就是这个项目目前真正验证过的平台。等测试做成跨平台再换 ubuntu（更快更便宜）。
+    runs-on: windows-latest
     permissions:
       contents: read
       # 这一行是全部魔法的来源：没有它，GitHub 不会签发 OIDC 令牌，
