@@ -51,7 +51,8 @@ export function resolveWebhook(resolved, env = process.env) {
   }
   try {
     const raw = JSON.parse(readFileSync(resolved.settingsPath, 'utf8'))
-    const fromFile = raw?.feishuWebhook
+    // `webhook` 是通用键；`feishuWebhook` 留给早期写法。
+    const fromFile = raw?.webhook ?? raw?.feishuWebhook
     if (typeof fromFile === 'string' && fromFile.trim() !== '') return fromFile.trim()
   } catch {
     // 文件不存在或坏了：继续往下找。
@@ -62,21 +63,42 @@ export function resolveWebhook(resolved, env = process.env) {
 }
 
 /**
+ * 按地址判断这是哪家通道。两种的报文格式不一样：
+ * - 飞书群机器人：JSON `{msg_type, content:{text}}`
+ * - ntfy：正文就是消息文本，标题走 `Title` 头
+ * @param {string} webhookUrl
+ * @returns {'feishu' | 'ntfy'}
+ */
+export function providerOf(webhookUrl) {
+  return /open\.feishu\.cn|open-apis\/bot/i.test(webhookUrl) ? 'feishu' : 'ntfy'
+}
+
+/**
  * 推一条消息。
- * @param {{ webhookUrl: string, text: string, fetchImpl?: typeof fetch }} options
+ * @param {{ webhookUrl: string, text: string, title?: string, fetchImpl?: typeof fetch }} options
  * @returns {Promise<string>} 成功时的说明。
  */
-export async function sendNotification({ webhookUrl, text, fetchImpl = fetch }) {
-  const body = JSON.stringify({ msg_type: 'text', content: { text } })
-  const response = await fetchImpl(webhookUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body,
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-  })
+export async function sendNotification({ webhookUrl, text, title, fetchImpl = fetch }) {
+  const provider = providerOf(webhookUrl)
+  const init = provider === 'feishu'
+    ? {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ msg_type: 'text', content: { text } }),
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      }
+    : {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain; charset=utf-8', ...title === undefined ? {} : { Title: title } },
+        // ntfy 把正文当消息内容，UTF-8 直接传；中文标题走 Title 头。
+        body: text,
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      }
+  const response = await fetchImpl(webhookUrl, init)
   if (!response.ok) {
     throw new Error(`通知发送失败：HTTP ${response.status}`)
   }
+  if (provider === 'ntfy') return '已发送'
   // 飞书用 body 里的 code 表示业务结果，HTTP 200 不代表成功。
   let payload
   try {

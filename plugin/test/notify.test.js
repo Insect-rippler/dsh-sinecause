@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, it } from 'node:test'
 
-import { apply, resolveWebhook, sendNotification } from '../src/notify/index.js'
+import { apply, providerOf, resolveWebhook, sendNotification } from '../src/notify/index.js'
 
 const workspace = 'C:/work/sinecause'
 const hook = 'https://open.feishu.cn/open-apis/bot/v2/hook/test-hook'
@@ -102,6 +102,30 @@ describe('sendNotification', () => {
   })
 })
 
+describe('provider detection', () => {
+  it('picks the payload shape from the address', () => {
+    assert.equal(providerOf('https://open.feishu.cn/open-apis/bot/v2/hook/x'), 'feishu')
+    assert.equal(providerOf('https://ntfy.sh/my-topic'), 'ntfy')
+  })
+
+  it('posts plain text (with an optional title header) to ntfy', async () => {
+    let captured
+    const fetchImpl = async (url, init) => {
+      captured = { url, init }
+      return { ok: true, json: async () => ({}) }
+    }
+    const note = await sendNotification({
+      webhookUrl: 'https://ntfy.sh/topic',
+      text: '长任务跑完了',
+      title: 'sinecause',
+      fetchImpl,
+    })
+    assert.equal(note, '已发送')
+    assert.equal(captured.init.body, '长任务跑完了')
+    assert.match(captured.init.headers['Content-Type'], /text\/plain/)
+    assert.equal(captured.init.headers.Title, 'sinecause')
+  })
+})
 describe('plugin wiring', () => {
   it('gives workspace sessions a notify tool, and nobody else', () => {
     const inside = mount({ workspaceRoot: workspace, settingsPath: tempSettings({ feishuWebhook: hook }) }, workspace)
