@@ -16,7 +16,7 @@
 import { Agenda, MAX_ACTIVE, normalizeAt } from './agenda.js'
 import { resolveStatePath, resolveWorkspaceRoot } from './paths.js'
 import { renderAgendaBlock } from './render.js'
-import { TAIL_ORDERS, registerTailBlock } from './tail.js'
+import { TAIL_ORDERS, installTailChannel, registerTailBlock } from './tail.js'
 import { inWorkspace } from './workspace-gate.js'
 
 export { inWorkspace } from './workspace-gate.js'
@@ -210,6 +210,8 @@ function registerForAgent(agent, resolved) {
 
 export function apply(ctx, config) {
   const resolved = resolveConfig(config)
+  // 生产里唯一真正收到 llm/stream 的入口：必须注册在插件级 ctx 上。
+  installTailChannel(ctx)
 
   ctx.on('agent/created', ({ agent }) => {
     if (!inWorkspace(sessionCwd(ctx, agent), resolved.workspaceRoot)) return

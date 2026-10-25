@@ -16,7 +16,7 @@
 import { readFileSync, statSync } from 'node:fs'
 
 import { resolveStatePath, resolveWorkspaceRoot } from '../paths.js'
-import { PLACEMENT, TAIL_ORDERS, registerTailBlock } from '../tail.js'
+import { PLACEMENT, TAIL_ORDERS, installTailChannel, registerRequestPrefix, registerTailBlock } from '../tail.js'
 import { inWorkspace } from '../workspace-gate.js'
 
 /** Cordis 插件名。 */
@@ -99,6 +99,8 @@ export function readPersona(path, maxChars, cache) {
  */
 export function apply(ctx, config) {
   const resolved = resolveConfig(config)
+  // 生产里唯一真正收到 llm/stream 的入口。
+  installTailChannel(ctx)
   let cache
 
   const body = () => {
@@ -117,39 +119,16 @@ export function apply(ctx, config) {
     // 那个判据一旦因为取不到 cwd 而返回空串，整段人格就会静默消失——实测栽过一次。
     const live = () => body()
 
-    try {
-      // 人格直接拼到请求里那条 system 消息的最前面。
-      //
-      // 试过两条"正规"的路，都不行：
-      // - `systemPrompt.section()` / `agent.ctx.inject(scope).section()`：实测系统提示里
-      //   一个字都没有（`promptdump` 拍到的全文 5775 字，不含人格）。
-      // - `system-prompt/assemble` 里 push：`AssembledSection` 没有 order 字段，
-      //   只能排在最后，永远到不了开头。
-      //
-      // 所以走和记忆/目标同一条已验证的钩子：`llm/stream`。区别只是改的是第一条
-      // system 消息的开头，而不是末尾追加。同样只影响这一份请求，不落库。
-      agent.ctx.on('llm/stream', (options, next) => {
-        try {
-          if (String(options?.sessionId) !== String(agent.id)) return next()
-          const text = live()
-          const first = options?.messages?.[0]
-          if (text !== '' && first?.role === 'system' && Array.isArray(first.content)) {
-            const [head, ...rest] = first.content
-            if (head?.type === 'text') {
-              options.messages = [
-                { ...first, content: [{ ...head, text: `${text}\n\n${head.text}` }, ...rest] },
-                ...options.messages.slice(1),
-              ]
-            }
-          }
-        } catch {
-          // 拼装失败也不该让请求发不出去。
-        }
-        return next()
-      })
-    } catch (error) {
-      ctx.logger?.warn?.(`sinecause-persona: 注册失败：${String(error?.message ?? error)}`)
-    }
+    // 人格拼到请求里第一条 system 消息的最前面。
+    //
+    // 试过两条"正规"的路，都不行：
+    // - `systemPrompt.section()` / `agent.ctx.inject(scope).section()`：实测系统提示里
+    //   一个字都没有（`promptdump` 拍到的全文 5775 字，不含人格）。
+    // - `system-prompt/assemble` 里 push：`AssembledSection` 没有 order 字段，
+    //   只能排在最后，永远到不了开头。
+    //
+    // 所以和记忆/目标共用一个通道（`llm/stream`，插件级 ctx），区别只是改 system 消息的开头。
+    registerRequestPrefix(agent, live)
 
       // 尾部的同一份，换个标题：它不是重复，是注意力锚点。
       // 走"请求时组装"而不是 context()——后者会被写成 durable 快照塞进历史，

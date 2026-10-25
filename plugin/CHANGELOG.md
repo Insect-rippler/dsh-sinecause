@@ -1,5 +1,20 @@
 # 变更记录
 
+## 0.1.17 — 2026-10-25
+
+### 钩子改注册在插件级 ctx：gent.ctx 收不到 llm/stream
+
+0.1.16 之后 dump 里仍然看不到人格和尾部三块，而 `plan` 工具是好的——说明插件加载了、
+代码执行了，只是**事件没送到**。
+
+Cordis 的事件按 ctx 过滤（`Context.filter`），DSH 里所有 `llm/stream` 消费者都注册在
+**插件级 ctx**（`session-checkpoint-policy` 等）。注册在 `agent.ctx` 上收不到事件，
+表现就是"代码明明跑了，请求里什么都没变"。
+
+- `tail.js` 新增 `installTailChannel(ctx)`：插件在 `apply` 里调一次，这是生产里唯一
+  真正收到事件的入口；会话级注册保留给单测驱动；
+- 同一份 `options` 用 `WeakSet` 标记，两条路都活着也只注入一次；
+- 块按 **Agent 对象**存（WeakMap），sessionId 只做索引——否则同一个 id 换了新 Agent 会把旧块串过来。
 ## 0.1.16 — 2026-10-25
 
 ### 人格改走 llm/stream，直接拼在 system 消息最前面

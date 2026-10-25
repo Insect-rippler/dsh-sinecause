@@ -13,7 +13,7 @@ import { GROWTH_KINDS, KINDS, MemoryStore, RESIDENT_KINDS, STATUSES, summarize }
 import { renderMemoryBlock, retrieve, sameSubjectEntries, similarity } from './retrieval.js'
 import { backfillEmbeddings, createEmbedder, embeddingFields, entrySimilarity } from './embedding.js'
 import { resolveStatePath, resolveWorkspaceRoot } from '../paths.js'
-import { PLACEMENT, TAIL_ORDERS, registerTailBlock } from '../tail.js'
+import { PLACEMENT, TAIL_ORDERS, installTailChannel, registerTailBlock } from '../tail.js'
 import { inWorkspace } from '../workspace-gate.js'
 
 /** Cordis 插件名。 */
@@ -432,6 +432,8 @@ export { KINDS, STATUSES }
 
 export function apply(ctx, config) {
   const resolved = resolveConfig(config)
+  // 生产里唯一真正收到 llm/stream 的入口：必须注册在插件级 ctx 上。
+  installTailChannel(ctx)
   ctx.on('agent/created', ({ agent }) => {
     if (!inWorkspace(sessionCwd(ctx, agent), resolved.workspaceRoot)) return
     try {
