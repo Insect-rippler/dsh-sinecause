@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it } from 'node:test'
@@ -56,6 +56,19 @@ describe('HeartbeatStore', () => {
     assert.equal(store.get('b').idleMs, 2 * MINUTE)
   })
 
+  it('does not write the file when there is nothing to clear', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'beat-'))
+    const path = join(dir, 'heartbeat.json')
+    const store = new HeartbeatStore(path)
+    store.clear('nobody')
+    assert.equal(existsSync(path), false, '没有门槛就不该创建文件')
+
+    store.set('a', MINUTE)
+    const before = statSync(path).mtimeMs
+    store.clear('a')
+    assert.equal(store.get('a'), undefined)
+    assert.ok(statSync(path).mtimeMs >= before)
+  })
   it('treats a corrupt file as no thresholds at all', () => {
     const path = join(mkdtempSync(join(tmpdir(), 'beat-')), 'heartbeat.json')
     writeFileSync(path, '{ 这不是 JSON', 'utf8')

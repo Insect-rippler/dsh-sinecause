@@ -61,8 +61,13 @@ export class HeartbeatStore {
 
   /** 清掉门槛，回到默认节拍。 */
   clear(sessionId) {
-    const table = { ...this.all() }
-    delete table[String(sessionId)]
+    const id = String(sessionId)
+    const current = this.all()
+    // 没有门槛就不要写盘：时钟每次叫醒都会清一次，白写会把状态文件的 mtime
+    // 刷成一跳一次，也会让"这个文件有内容"这件事变得不可信。
+    if (!Object.hasOwn(current, id)) return
+    const table = { ...current }
+    delete table[id]
     this.write(table)
   }
 
