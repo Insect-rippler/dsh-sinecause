@@ -1,6 +1,6 @@
 {
   "name": "dsh-sinecause",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "type": "module",
   "description": "给 DSH 上的一个会话装上自己的目标、记忆和作息：goal / memory / clock 三个插件",
   "license": "MIT",
@@ -27,6 +27,7 @@
     "./memory": "./src/memory/index.js",
     "./clock": "./src/clock/index.js",
     "./persona": "./src/persona/index.js",
+    "./notify": "./src/notify/index.js",
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },

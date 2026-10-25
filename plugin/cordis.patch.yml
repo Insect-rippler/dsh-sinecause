@@ -31,3 +31,8 @@
       name: 'dsh-sinecause/clock'
       config:
         intervalMinutes: 10
+
+    # 单向下通知：把值得说的一句推给他（飞书群机器人）。
+    # webhook 地址是凭据，写在 <workspace>/state/notify.json 里，不进这个文件。
+    - id: sinecause-notify
+      name: 'dsh-sinecause/notify'
