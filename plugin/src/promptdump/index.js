@@ -24,6 +24,15 @@ import { inWorkspace } from '../workspace-gate.js'
 
 export const name = 'sinecause-promptdump'
 
+/**
+ * 必须声明这两个依赖：
+ * - `llm` 提供 `llm/stream` 这个环绕钩子本身；
+ * - `sessions` 用来从 sessionId 反查会话的 cwd（判断是不是这个工作区的）。
+ * 少了它们，钩子里 `ctx.sessions` 是 undefined，取不到 cwd 就静默跳过——
+ * 表现是"开关打开了但什么都没发生"。这条是踩出来的。
+ */
+export const inject = ['llm', 'sessions']
+
 /** 单条消息正文在 .md 里的截断长度：够看出是什么，不会把文件撑爆。 */
 const TEXT_LIMIT = 4000
 
@@ -43,6 +52,8 @@ export function resolveConfig(config) {
     flagPath: join(workspaceRoot, 'state', 'dump-prompt.on'),
     mdPath: join(workspaceRoot, 'state', 'last-request.md'),
     jsonPath: join(workspaceRoot, 'state', 'last-request.json'),
+    // 自检：每次被调用时写一份"走到哪一步、为什么停"。省得靠猜。
+    statusPath: join(workspaceRoot, 'state', 'promptdump.status.json'),
   }
 }
 
@@ -136,19 +147,42 @@ export function apply(ctx, config) {
   // 不用为了看一次 payload 重启一次 DSH。关掉时只多一次 stat。
   const isOn = () => resolved.enabled || existsSync(resolved.flagPath)
 
+  /** 写一行自检状态：卡在哪一步，一眼能看见。 */
+  const report = (fields) => {
+    try {
+      writeFileSync(
+        resolved.statusPath,
+        `${JSON.stringify({ at: new Date().toISOString(), workspaceRoot: resolved.workspaceRoot, ...fields }, null, 2)}\n`,
+        'utf8',
+      )
+    } catch {
+      // 自检写不进去也不能影响请求。
+    }
+  }
+
   ctx.on('llm/stream', (options, next) => {
     try {
-      if (isOn()) {
+      const on = isOn()
+      if (on) {
         const sessionId = options?.sessionId
-        const session = sessionId === undefined ? undefined : ctx.sessions?.get?.(sessionId)
+        const sessions = ctx.sessions
+        const session = sessionId === undefined || sessions === undefined ? undefined : sessions.get?.(sessionId)
         const cwd = session?.header?.cwd
+        const matched = inWorkspace(cwd, resolved.workspaceRoot)
         // 只落这个工作区的：别把别处会话的内容写到我们的 state 里。
-        if (inWorkspace(cwd, resolved.workspaceRoot)) {
-          dumpRequest(resolved, options)
-        }
+        if (matched) dumpRequest(resolved, options)
+        report({
+          on,
+          hasSessions: sessions !== undefined,
+          sessionId: sessionId === undefined ? null : String(sessionId),
+          hasSession: session !== undefined,
+          cwd: cwd === undefined ? null : String(cwd),
+          matched,
+          messages: Array.isArray(options?.messages) ? options.messages.length : 0,
+        })
       }
-    } catch {
-      // 任何意外都不该让请求失败。
+    } catch (error) {
+      report({ on: true, error: String(error?.message ?? error) })
     }
     return next()
   })

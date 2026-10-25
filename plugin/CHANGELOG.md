@@ -1,5 +1,19 @@
 # 变更记录
 
+## 0.1.11 — 2026-10-25
+
+### 修复：promptdump 声明依赖，并会自检
+
+两个问题，都是"开关打开了却什么都没发生"：
+
+1. **缺 `inject = ['llm', 'sessions']`。** 没有它们，钩子里 `ctx.sessions` 是 undefined，
+   反查不到 cwd，`inWorkspace(undefined)` 恒为 false——静默跳过。DSH 里其它监听
+   `llm/stream` 的插件都声明了这两个。
+2. **没有任何反馈。** 现在每次请求会写 `state/promptdump.status.json`：
+   `on` / `hasSessions` / `sessionId` / `cwd` / `matched` / `messages`。
+   卡在哪一步一眼能看见，不用靠猜。
+
+测试补了两条：`inject` 必须包含那两个服务；状态文件必须写出 `matched: true`。
 ## 0.1.10 — 2026-10-25
 
 ### 新增：`promptdump`（调试用，可观测性）

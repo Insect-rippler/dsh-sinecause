@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it } from 'node:test'
 
-import { apply, dumpRequest, renderRequest, resolveConfig } from '../src/promptdump/index.js'
+import { apply, dumpRequest, inject, renderRequest, resolveConfig } from '../src/promptdump/index.js'
 
 const workspace = 'C:/work/sinecause'
 
@@ -120,6 +120,24 @@ describe('plugin wiring', () => {
     assert.equal(after, before, '别处会话的内容不该写进我们的 state')
   })
 
+  // 这条是踩出来的：没声明 inject 时钩子里拿不到 ctx.sessions，
+  // 取不到 cwd 就静默跳过——开关打开了却什么都没发生。
+  it('declares the services the hook depends on', () => {
+    assert.ok(inject.includes('llm'), '没有 llm 就收不到 llm/stream')
+    assert.ok(inject.includes('sessions'), '没有 sessions 就反查不到 cwd')
+  })
+
+  it('writes a status file saying how far it got', () => {
+    const ws = mkdtempSync(join(tmpdir(), 'ws-'))
+    const ctx = fakeCtx()
+    ctx.sessions = { get: () => ({ header: { cwd: ws } }) }
+    apply(ctx, { workspaceRoot: ws, enabled: true })
+    ctx.listeners.get('llm/stream')(sample, () => 'stream')
+    const status = JSON.parse(readFileSync(join(ws, 'state', 'promptdump.status.json'), 'utf8'))
+    assert.equal(status.matched, true)
+    assert.equal(status.hasSessions, true)
+    assert.equal(status.messages, 2)
+  })
   it('resolves defaults and the env switch', () => {
     const resolved = resolveConfig({ workspaceRoot: workspace })
     assert.match(resolved.mdPath.replaceAll('\\', '/'), /sinecause\/state\/last-request\.md$/)
