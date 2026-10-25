@@ -95,18 +95,36 @@ function applyBlocks(options, list) {
   return true
 }
 
+/** 上一次请求处理的自检信息：钩子到底跑没跑、拿到的 sessionId 认不认得。 */
+const lastPatch = { at: null, sessionId: null, known: false, applied: false }
+
+/** 自检：给 promptdump 用，回答"代码到底跑到哪一步"。 */
+export function tailDiagnostics() {
+  return {
+    // 注册过块的会话 id（说明 agent/created 那侧是通的）
+    registered: [...agentOf.keys()],
+    lastPatch: { ...lastPatch },
+  }
+}
+
 /** 处理一次请求；同一个 options 只处理一次。 */
 function patch(options) {
   try {
-    const agent = agentOf.get(String(options?.sessionId ?? ''))
+    const sessionId = String(options?.sessionId ?? '')
+    const agent = agentOf.get(sessionId)
+    lastPatch.at = new Date().toISOString()
+    lastPatch.sessionId = sessionId
+    lastPatch.known = agent !== undefined
     if (agent === undefined) return
     const list = blocks.get(agent)
     const prefix = prefixes.get(agent)
     if (list === undefined && prefix === undefined) return
     if (patched.has(options)) return
     patched.add(options)
-    if (prefix !== undefined) applyPrefix(options, prefix)
-    if (list !== undefined) applyBlocks(options, list)
+    let applied = false
+    if (prefix !== undefined) applied = applyPrefix(options, prefix) || applied
+    if (list !== undefined) applied = applyBlocks(options, list) || applied
+    lastPatch.applied = applied
   } catch {
     // 拼装失败也不该让请求发不出去。
   }

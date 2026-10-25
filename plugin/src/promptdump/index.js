@@ -20,6 +20,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
 import { resolveWorkspaceRoot } from '../paths.js'
+import { tailDiagnostics } from '../tail.js'
 import { inWorkspace } from '../workspace-gate.js'
 
 export const name = 'sinecause-promptdump'
@@ -182,6 +183,7 @@ export function apply(ctx, config) {
           cwd: cwd === undefined ? null : String(cwd),
           matched,
           messages: Array.isArray(options?.messages) ? options.messages.length : 0,
+          tail: tailDiagnostics(),
         })
       }
     } catch (error) {

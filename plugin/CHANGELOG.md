@@ -1,5 +1,25 @@
 # 变更记录
 
+## 0.1.19 — 2026-10-25
+
+### 加自检：钩子到底跑到哪一步
+
+`promptdump` 的状态文件现在多一段 `tail`：
+
+```
+"tail": {
+  "registered": ["session-…"],        // agent/created 那侧登记过的会话 id
+  "lastPatch": { "sessionId": "…", "known": true/false, "applied": true/false }
+}
+```
+
+三种情况一眼分清：
+
+- 没有 `lastPatch.at` → 钩子根本没被调用（注册位置或依赖问题）；
+- `known: false` → 钩子跑了，但 `options.sessionId` 与登记的对不上；
+- `known: true, applied: false` → 认出来了，但拼装返回空（人格文件空、或块都渲染成空）。
+
+不再靠猜。
 ## 0.1.18 — 2026-10-25
 
 ### 三个插件都没声明 llm 依赖
