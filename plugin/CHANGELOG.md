@@ -1,5 +1,16 @@
 # 变更记录
 
+## 0.1.18 — 2026-10-25
+
+### 三个插件都没声明 llm 依赖
+
+这是 `promptdump` 能触发、我们三条注入却不触发的唯一结构差异：
+
+- `promptdump`：`inject = ['llm', 'sessions']` → 能收到 `llm/stream`
+- goal / memory / persona：只声明了 `tools` / `systemPrompt` → 监听一个自己没注入的服务，
+  Cordis 里这等于没接上
+
+三个插件的 `inject` 都补上 `llm`。测试里加了断言：少声明就直接红。
 ## 0.1.17 — 2026-10-25
 
 ### 钩子改注册在插件级 ctx：gent.ctx 收不到 llm/stream

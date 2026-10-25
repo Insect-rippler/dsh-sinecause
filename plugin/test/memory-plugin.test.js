@@ -76,7 +76,7 @@ after(() => {
 describe('memory plugin wiring', () => {
   it('declares the services it needs', () => {
     assert.equal(name, 'sinecause-memory')
-    assert.deepEqual(inject, ['tools', 'systemPrompt'])
+    assert.deepEqual(inject, ['tools', 'systemPrompt', 'llm'], 'llm 必须声明：不注入就收不到 llm/stream')
   })
 
   it('registers one memory tool and one context, ordered before goal', () => {

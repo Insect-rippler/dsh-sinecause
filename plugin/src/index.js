@@ -25,7 +25,7 @@ export { inWorkspace } from './workspace-gate.js'
 export const name = 'sinecause-goal'
 
 /** 依赖的服务：工具注册与提示词装配。 */
-export const inject = ['tools', 'systemPrompt']
+export const inject = ['tools', 'systemPrompt', 'llm']
 
 /** `plan` 工具接受的 action。 */
 export const ACTIONS = ['create', 'list', 'done', 'block', 'add', 'timer', 'finish', 'abandon']

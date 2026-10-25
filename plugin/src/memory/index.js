@@ -20,7 +20,7 @@ import { inWorkspace } from '../workspace-gate.js'
 export const name = 'sinecause-memory'
 
 /** 依赖的服务。 */
-export const inject = ['tools', 'systemPrompt']
+export const inject = ['tools', 'systemPrompt', 'llm']
 
 /** `memory` 工具接受的 action。 */
 export const ACTIONS = [

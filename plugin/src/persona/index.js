@@ -23,7 +23,7 @@ import { inWorkspace } from '../workspace-gate.js'
 export const name = 'sinecause-persona'
 
 /** 依赖的服务。 */
-export const inject = ['systemPrompt']
+export const inject = ['systemPrompt', 'llm']
 
 /** 紧跟 DEPLOYMENT_PERSONA_PREFIX（order 0）之后，早于一切策略与工具说明。 */
 export const DEFAULT_ORDER = 1
