@@ -5,6 +5,10 @@ node_modules/
 # `npm pack` 的产物：发布前预验用，不该入库
 *.tgz
 
+# 编辑过程中的临时/备份文件
+*.bak-*
+*.new
+
 # 向量模型是二进制资产（int8 约 98MB），按需下载，不入库
 plugin/models/
 

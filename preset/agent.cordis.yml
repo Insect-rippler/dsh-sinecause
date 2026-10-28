@@ -20,9 +20,12 @@
 - id: sinecause-memory
   name: 'dsh-sinecause/memory'
 
-# 作息：没人在说话时按间隔叫醒；她也能用 heartbeat 工具把间隔调大
+# 作息：没人在说话时按间隔叫醒。
+# **默认关着**——2026-10-25 这个工作区的工作暂停、转到梦露那边，不想每十分钟醒一次。
+# 想让它自己过日子就删掉 disabled（间隔原来写的是 10 分钟）。
 - id: sinecause-clock
   name: 'dsh-sinecause/clock'
+  disabled: true
   config:
     intervalMinutes: 10
 
