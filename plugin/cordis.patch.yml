@@ -11,6 +11,7 @@
 - insert:
     # ── 探索模式 ──────────────────────────────────────────────────────────
     - id: preset-explore
+      name: '@deepseek-ai/dsh-agent-preset'
       config:
         id: explore
         order: 5
