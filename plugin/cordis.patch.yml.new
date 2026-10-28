@@ -1,0 +1,8 @@
+    # 时钟：没人在说话时按间隔叫醒她。
+    # 2026-10-25 关掉：那边的工作暂停，改成在梦露身上继续，不想再每十分钟醒一次。
+    # 要恢复就把 disabled 删掉（间隔原来写的是 10 分钟）。
+    - id: sinecause-clock
+      name: 'dsh-sinecause/clock'
+      disabled: true
+      config:
+        intervalMinutes: 10

@@ -1,0 +1,31 @@
+# sinecause —— 把「人格 + 目标 + 记忆 + 作息 + 通知」装成一个 agent preset
+#
+# 这是一份 AGENT-PLANE composition：DSH 把 preset 挂在常驻 scope 上，每个命名它的
+# 会话通过 scope 父子关系加入，所以这里的行覆盖每个加入的 agent，而会话自己的状态
+# 仍然按 Session/Agent 各自隔离。
+#
+# 行里的 name 解析的是包名——本 preset 依赖 profile 里已安装的 dsh-sinecause。
+
+# 人格：读 <workspace>/state/persona.md，拼进系统提示最前面。
+# 用自己这个而不是 '@deepseek-ai/dsh-persona'，因为人格是文件、会慢慢变，
+# 不是预设阶段写死的一段文字。
+- id: sinecause-persona
+  name: 'dsh-sinecause/persona'
+
+# 目标：plan 工具 + 每次请求末尾的注意力引导
+- id: sinecause-goal
+  name: 'dsh-sinecause'
+
+# 记忆：常驻档案 + 召回，同样在请求末尾组装
+- id: sinecause-memory
+  name: 'dsh-sinecause/memory'
+
+# 作息：没人在说话时按间隔叫醒；她也能用 heartbeat 工具把间隔调大
+- id: sinecause-clock
+  name: 'dsh-sinecause/clock'
+  config:
+    intervalMinutes: 10
+
+# 通知：单向推给他（webhook 地址在 <workspace>/state/notify.json，不写进这里）
+- id: sinecause-notify
+  name: 'dsh-sinecause/notify'
